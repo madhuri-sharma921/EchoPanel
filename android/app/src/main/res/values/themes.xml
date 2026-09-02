@@ -1,0 +1,8 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!--
+        Compose applies the real theme (see presentation/common/theme/Theme.kt).
+        This base theme only needs to satisfy the Android launch/splash
+        requirements before Compose content is set.
+    -->
+    <style name="Theme.EchoPanel" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

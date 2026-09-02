@@ -1,0 +1,5 @@
+# Copy this file to local.properties (which is gitignored) and fill in your values.
+sdk.dir=/path/to/Android/sdk
+
+# Agora App ID from https://console.agora.io — wire into app/build.gradle.kts
+# buildConfigField("String", "AGORA_APP_ID", "\"your-agora-app-id\"")

@@ -1,0 +1,16 @@
+# Backend
+backend/.venv/
+backend/.env
+backend/__pycache__/
+backend/**/__pycache__/
+backend/.pytest_cache/
+*.pyc
+
+# Android (see android/.gitignore for the fuller set)
+android/local.properties
+android/.gradle/
+android/**/build/
+android/.idea/
+
+.DS_Store
+backend/.env.py
