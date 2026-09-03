@@ -45,7 +45,7 @@ def test_bridge_returns_openai_shaped_response():
         "app.api.llm_bridge.extract_claim", new=AsyncMock(return_value=fake_claim)
     ), patch(
         "app.api.llm_bridge.generate_followup",
-        new=AsyncMock(return_value="Tell me more about the impact."),
+        new=AsyncMock(return_value=("Tell me more about the impact.", None)),
     ):
         response = client.post(
             f"/v1/chat/completions/{session_id}",
@@ -102,7 +102,7 @@ def test_bridge_streams_when_requested():
         "app.api.llm_bridge.extract_claim", new=AsyncMock(return_value=fake_claim)
     ), patch(
         "app.api.llm_bridge.generate_followup",
-        new=AsyncMock(return_value="Tell me more."),
+        new=AsyncMock(return_value=("Tell me more.", None)),
     ):
         response = client.post(
             f"/v1/chat/completions/{session_id}",
@@ -139,3 +139,55 @@ def test_bridge_400s_on_invalid_json():
         headers={"content-type": "application/json"},
     )
     assert response.status_code == 400
+
+
+def test_bridge_stores_scenario_card_when_persona_provides_one():
+    """
+    When generate_followup decides a role-play/scenario framing fits (a
+    named PS11 requirement), the returned scenario must be persisted on
+    the session and exposed via GET /sessions/{id}/scenario so the app
+    can render it visually alongside the spoken question.
+    """
+    session_id = _create_session()
+    fake_claim = ClaimNode(
+        topic="customer support",
+        claim="Candidate handled an escalation",
+        confidence=0.6,
+        raised_by=PersonaRole.TECHNICAL,
+        transcript_timestamp_ms=1000,
+    )
+    fake_scenario = {
+        "persona": "customer",
+        "title": "Angry Customer Call",
+        "setting": "A customer is furious their data disappeared after an update.",
+        "emoji": "📞",
+    }
+
+    with patch(
+        "app.api.llm_bridge.extract_claim", new=AsyncMock(return_value=fake_claim)
+    ), patch(
+        "app.api.llm_bridge.generate_followup",
+        new=AsyncMock(return_value=("Picture this: a customer calls furious.", fake_scenario)),
+    ):
+        response = client.post(
+            f"/v1/chat/completions/{session_id}",
+            json={
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "I fixed a data loss bug."}],
+            },
+        )
+    assert response.status_code == 200
+
+    scenario_response = client.get(f"/sessions/{session_id}/scenario")
+    assert scenario_response.status_code == 200
+    scenario = scenario_response.json()["scenario"]
+    assert scenario is not None
+    assert scenario["title"] == "Angry Customer Call"
+    assert scenario["emoji"] == "📞"
+
+
+def test_scenario_endpoint_returns_null_for_fresh_session():
+    session_id = _create_session()
+    response = client.get(f"/sessions/{session_id}/scenario")
+    assert response.status_code == 200
+    assert response.json()["scenario"] is None

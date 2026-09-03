@@ -1,11 +1,16 @@
 package com.echopanel.app.presentation.interview
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -49,6 +54,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.echopanel.app.domain.model.AgentActivityState
 import com.echopanel.app.domain.model.CallState
 import com.echopanel.app.domain.model.PersonaRole
+import com.echopanel.app.domain.model.ScenarioCard
 import com.echopanel.app.domain.model.TranscriptTurn
 import com.echopanel.app.presentation.disclosure.AiDisclosureBanner
 import com.echopanel.app.presentation.disclosure.ConsentDialog
@@ -91,6 +97,19 @@ fun InterviewScreen(
 
             uiState.errorMessage?.let { message ->
                 ErrorBanner(message)
+            }
+
+            AnimatedVisibility(
+                visible = uiState.scenario != null,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically(),
+            ) {
+                uiState.scenario?.let { scenario ->
+                    ScenarioBanner(
+                        scenario = scenario,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
             }
 
             TranscriptList(
@@ -147,11 +166,48 @@ private fun ErrorBanner(message: String) {
 }
 
 /**
- * The visual centerpiece while a call is live: a pulsing orb that reflects
- * the AI panel's current activity (listening/thinking/speaking), plus an
- * interrupt control — the visible counterpart to the "interruptible voice"
- * requirement.
+ * A visual "scenario card" a persona sets up before a role-play or
+ * scenario-based question (a named PS11 requirement). The panel still
+ * speaks the framing aloud through Agora's TTS — this card gives the
+ * candidate something to see at the same time, rather than relying on
+ * audio alone to set the scene.
  */
+@Composable
+private fun ScenarioBanner(scenario: ScenarioCard, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.14f),
+        shape = RoundedCornerShape(16.dp),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(scenario.emoji, style = MaterialTheme.typography.titleLarge)
+                Spacer(Modifier.size(10.dp))
+                Column {
+                    Text(
+                        "SCENARIO",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.tertiary,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        scenario.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            }
+            Spacer(Modifier.size(8.dp))
+            Text(
+                scenario.setting,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+
 @Composable
 private fun LiveStatusHero(
     agentState: AgentActivityState,
@@ -205,8 +261,8 @@ private fun LiveStatusHero(
 private fun PulsingOrb(agentState: AgentActivityState) {
     val transition = rememberInfiniteTransition(label = "orb-pulse")
     val isActive = agentState == AgentActivityState.LISTENING ||
-        agentState == AgentActivityState.SPEAKING ||
-        agentState == AgentActivityState.THINKING
+            agentState == AgentActivityState.SPEAKING ||
+            agentState == AgentActivityState.THINKING
 
     val scale by transition.animateFloat(
         initialValue = 1f,

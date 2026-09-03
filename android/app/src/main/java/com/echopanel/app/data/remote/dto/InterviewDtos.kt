@@ -73,3 +73,16 @@ data class StartAgentResponseDto(
     @SerialName("agent_id") val agentId: String,
     val status: String,
 )
+
+@Serializable
+data class ScenarioCardDto(
+    val persona: PersonaRoleDto,
+    val title: String,
+    val setting: String,
+    val emoji: String,
+)
+
+@Serializable
+data class ScenarioResponseDto(
+    val scenario: ScenarioCardDto? = null,
+)

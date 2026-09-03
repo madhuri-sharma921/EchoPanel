@@ -25,6 +25,11 @@ class AgoraCallRepositoryImpl @Inject constructor(
     private val transcriptEvents = MutableSharedFlow<TranscriptTurn>(replay = 0, extraBufferCapacity = 32)
     private val agentStateEvents = MutableSharedFlow<AgentActivityState>(replay = 1, extraBufferCapacity = 8)
 
+    companion object {
+        // MUST match CANDIDATE_UID = "1001" in your Python backend (agora_agent_service.py)
+        const val CANDIDATE_RTC_UID = 1001
+    }
+
     override suspend fun joinCall(
         sessionId: String,
         agoraToken: String,
@@ -32,35 +37,56 @@ class AgoraCallRepositoryImpl @Inject constructor(
         rtmToken: String,
         rtmUserAccount: String,
     ): Result<Unit> = runCatching {
+        // Destroy existing engine if any before recreating
+        if (rtcEngine != null) {
+            rtcEngine?.leaveChannel()
+            RtcEngine.destroy()
+            rtcEngine = null
+        }
+
         val rtcConfig = RtcEngineConfig().apply {
             mContext = appContext
             mAppId = BuildConfig.AGORA_APP_ID
             mEventHandler = object : IRtcEngineEventHandler() {
                 override fun onJoinChannelSuccess(channel: String?, uid: Int, elapsed: Int) {
-                    // Conversational AI agent auto-joins server-side once
-                    // this client successfully joins the channel — see
-                    // /sessions/{id}/agent/start, called right after this.
+                    // Successfully joined channel with CANDIDATE_RTC_UID
+                    // Your ViewModel / Session flow should now call /sessions/{id}/agent/start
                 }
 
                 override fun onError(err: Int) {
-                    // Surfaced to the UI via CallState.Error in the ViewModel layer.
+                    // Handle Agora errors
+                }
+
+                override fun onUserJoined(uid: Int, elapsed: Int) {
+                    // Remote entity (Agent with UID 9999) joined
                 }
             }
         }
+
         val engine = RtcEngine.create(rtcConfig).apply {
             enableAudio()
+            setAudioProfile(
+                Constants.AUDIO_PROFILE_SPEECH_STANDARD,
+                Constants.AUDIO_SCENARIO_GAME_STREAMING
+            )
             setChannelProfile(Constants.CHANNEL_PROFILE_LIVE_BROADCASTING)
             setClientRole(Constants.CLIENT_ROLE_BROADCASTER)
+            muteLocalAudioStream(false) // Guarantee local mic is unmuted
         }
         rtcEngine = engine
 
         val options = ChannelMediaOptions().apply {
             channelProfile = Constants.CHANNEL_PROFILE_LIVE_BROADCASTING
             clientRoleType = Constants.CLIENT_ROLE_BROADCASTER
-            publishMicrophoneTrack = true
-            autoSubscribeAudio = true
+            publishMicrophoneTrack = true // Explicitly publish candidate's mic
+            autoSubscribeAudio = true     // Hear the agent's voice
         }
-        engine.joinChannel(agoraToken, channelName, 0, options)
+
+        // Pass CANDIDATE_RTC_UID (1001) instead of 0
+        val res = engine.joinChannel(agoraToken, channelName, CANDIDATE_RTC_UID, options)
+        if (res != 0) {
+            throw RuntimeException("Agora joinChannel failed with error code: $res")
+        }
     }
 
     override suspend fun leaveCall() {
@@ -74,6 +100,6 @@ class AgoraCallRepositoryImpl @Inject constructor(
     override fun observeAgentState(): Flow<AgentActivityState> = agentStateEvents
 
     override suspend fun interruptAgent(): Result<Unit> = runCatching {
-
+        // If needed, you can mute local audio or send an interrupt signal
     }
 }

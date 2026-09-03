@@ -4,7 +4,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",  # Allows keys like DEEPGRAM_API_KEY in .env without throwing validation errors
+    )
 
     app_name: str = "EchoPanel"
     environment: str = "development"
@@ -15,6 +19,9 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4o"
     openai_base_url: str = ""
+
+    # Deepgram ASR
+    deepgram_api_key: str = ""
 
     # Agora Conversational AI Engine
     agora_app_id: str = ""

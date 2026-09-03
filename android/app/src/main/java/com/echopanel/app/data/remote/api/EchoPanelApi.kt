@@ -5,6 +5,7 @@ import com.echopanel.app.data.remote.dto.AgoraTurnRequestDto
 import com.echopanel.app.data.remote.dto.AgoraTurnResponseDto
 import com.echopanel.app.data.remote.dto.CreateSessionResponseDto
 import com.echopanel.app.data.remote.dto.FinalReportDto
+import com.echopanel.app.data.remote.dto.ScenarioResponseDto
 import com.echopanel.app.data.remote.dto.StartAgentResponseDto
 import retrofit2.http.Body
 import retrofit2.http.GET
@@ -37,4 +38,7 @@ interface EchoPanelApi {
 
     @POST("sessions/{sessionId}/agent/start")
     suspend fun startAgent(@Path("sessionId") sessionId: String): StartAgentResponseDto
+
+    @GET("sessions/{sessionId}/scenario")
+    suspend fun getLatestScenario(@Path("sessionId") sessionId: String): ScenarioResponseDto
 }

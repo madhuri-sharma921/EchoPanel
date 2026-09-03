@@ -5,6 +5,7 @@ import com.echopanel.app.domain.model.AgoraToken
 import com.echopanel.app.domain.model.FinalReport
 import com.echopanel.app.domain.model.InterviewSession
 import com.echopanel.app.domain.model.PersonaRole
+import com.echopanel.app.domain.model.ScenarioCard
 import com.echopanel.app.domain.model.TranscriptTurn
 import com.echopanel.app.domain.model.TurnResult
 import kotlinx.coroutines.flow.Flow
@@ -31,21 +32,14 @@ interface InterviewRepository {
     /** Fetches a signed Agora RTC token scoped to this session's voice channel. */
     suspend fun fetchAgoraToken(sessionId: String): Result<AgoraToken>
 
-    /**
-     * Starts the Agora Conversational AI agent for this session's channel.
-     * Call this AFTER joinCall has succeeded, so the agent doesn't speak
-     * into an empty room.
-     */
+
     suspend fun startAgent(sessionId: String): Result<Unit>
+
+
+    suspend fun fetchLatestScenario(sessionId: String): Result<ScenarioCard?>
 }
 
-/**
- * Domain-layer contract for the Agora voice call (RTC + Signaling +
- * Conversational AI Engine client toolkit). Transcript and agent-state
- * updates arrive over Agora's Signaling (RTM) channel, delivered via the
- * toolkit's event handler — see AgoraCallRepositoryImpl for the concrete
- * wiring.
- */
+
 interface AgoraCallRepository {
 
     suspend fun joinCall(
@@ -58,12 +52,12 @@ interface AgoraCallRepository {
 
     suspend fun leaveCall()
 
-    /** Live transcript entries as they're produced — both candidate and agent speech. */
+
     fun observeTranscript(): Flow<TranscriptTurn>
 
-    /** Live agent activity state (silent/listening/thinking/speaking), for a status indicator. */
+
     fun observeAgentState(): Flow<AgentActivityState>
 
-    /** Interrupts the agent mid-speech — supports the "interruptible" requirement. */
+
     suspend fun interruptAgent(): Result<Unit>
 }

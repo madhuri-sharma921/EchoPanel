@@ -73,6 +73,21 @@ class TranscriptEntry(BaseModel):
     timestamp_ms: int
 
 
+class ScenarioCard(BaseModel):
+    """
+    A short, visual scenario the persona sets up before a role-play or
+    scenario-based question (a named PS11 requirement). Rendered as a
+    card in the app rather than requiring real image generation — the
+    LLM supplies a title, one-line setting, and an emoji/icon that
+    together let the candidate "see" the scenario, not just hear it.
+    """
+    persona: PersonaRole
+    title: str
+    setting: str
+    emoji: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class InterviewSession(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     candidate_name: str
@@ -83,6 +98,7 @@ class InterviewSession(BaseModel):
     competence_scores: dict[str, CompetenceScore] = Field(default_factory=dict)
     agora_agent_id: Optional[str] = None
     last_speaking_persona: Optional[PersonaRole] = None
+    latest_scenario: Optional[ScenarioCard] = None
 
     class Config:
         arbitrary_types_allowed = True

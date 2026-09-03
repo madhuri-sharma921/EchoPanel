@@ -4,6 +4,7 @@ import com.echopanel.app.domain.model.AgoraToken
 import com.echopanel.app.domain.model.FinalReport
 import com.echopanel.app.domain.model.InterviewSession
 import com.echopanel.app.domain.model.PersonaRole
+import com.echopanel.app.domain.model.ScenarioCard
 import com.echopanel.app.domain.model.TurnResult
 import com.echopanel.app.domain.repository.InterviewRepository
 import javax.inject.Inject
@@ -61,4 +62,11 @@ class StartAgentUseCase @Inject constructor(
 ) {
     suspend operator fun invoke(sessionId: String): Result<Unit> =
         repository.startAgent(sessionId)
+}
+
+class GetLatestScenarioUseCase @Inject constructor(
+    private val repository: InterviewRepository,
+) {
+    suspend operator fun invoke(sessionId: String): Result<ScenarioCard?> =
+        repository.fetchLatestScenario(sessionId)
 }

@@ -79,3 +79,11 @@ data class AgoraToken(
 enum class AgentActivityState {
     SILENT, LISTENING, THINKING, SPEAKING, UNKNOWN
 }
+
+
+data class ScenarioCard(
+    val persona: PersonaRole,
+    val title: String,
+    val setting: String,
+    val emoji: String,
+)
