@@ -20,6 +20,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request
 
+from app.models.schemas import ScenarioCard
 from app.personas.engine import extract_claim, generate_followup
 from app.services.context_graph_store import get_context_graph_store
 from app.services.contradiction_detector import process_new_claim
@@ -104,12 +105,15 @@ async def chat_completions_bridge(session_id: UUID, request: Request) -> dict:
     winner = pick_next_persona(scores)
     session.last_speaking_persona = winner.persona
 
-    spoken_text = await generate_followup(
+    spoken_text, scenario = await generate_followup(
         role=winner.persona,
         graph=graph,
         topic_hint=claim.topic,
         question_depth=competence.next_depth.value,
+        candidate_answer=candidate_text,
     )
+    if scenario is not None:
+        session.latest_scenario = ScenarioCard(**scenario)
 
     if body.get("stream"):
         return _streaming_response(session_id, spoken_text)

@@ -16,7 +16,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.models.schemas import PersonaRole, TranscriptEntry
+from app.models.schemas import PersonaRole, ScenarioCard, TranscriptEntry
 from app.personas.engine import extract_claim, generate_followup
 from app.services.agora_token_service import generate_rtc_token
 from app.services.context_graph_store import ContextGraphStore, get_context_graph_store
@@ -118,12 +118,15 @@ async def handle_turn(
     winner = pick_next_persona(scores)
 
     # 5. Generate that persona's grounded follow-up via the LLM.
-    spoken_text = await generate_followup(
+    spoken_text, scenario = await generate_followup(
         role=winner.persona,
         graph=graph,
         topic_hint=claim.topic,
         question_depth=competence.next_depth.value,
+        candidate_answer=payload.candidate_text,
     )
+    if scenario is not None:
+        session.latest_scenario = ScenarioCard(**scenario)
 
     return AgoraTurnResponse(
         next_persona=winner.persona,

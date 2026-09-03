@@ -21,7 +21,7 @@ android {
 
         // Backend base URL and Agora App ID — override per build variant / local.properties
         buildConfigField("String", "BACKEND_BASE_URL", "\"http://192.168.1.9:8000/\"")
-        buildConfigField("String", "AGORA_APP_ID", "\"bf9b1cd75b9f4fac82f7340e9709839c\"")
+        buildConfigField("String", "AGORA_APP_ID", "\"a4fd62660db6488296360ec5a48dfbd2\"")
     }
 
     buildTypes {

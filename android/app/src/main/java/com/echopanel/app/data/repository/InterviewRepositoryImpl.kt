@@ -7,6 +7,7 @@ import com.echopanel.app.domain.model.AgoraToken
 import com.echopanel.app.domain.model.FinalReport
 import com.echopanel.app.domain.model.InterviewSession
 import com.echopanel.app.domain.model.PersonaRole
+import com.echopanel.app.domain.model.ScenarioCard
 import com.echopanel.app.domain.model.TurnResult
 import com.echopanel.app.domain.model.VerdictItem
 import com.echopanel.app.domain.repository.InterviewRepository
@@ -96,6 +97,18 @@ class InterviewRepositoryImpl @Inject constructor(
     override suspend fun startAgent(sessionId: String): Result<Unit> = runCatching {
         api.startAgent(sessionId)
         Unit
+    }
+
+    override suspend fun fetchLatestScenario(sessionId: String): Result<ScenarioCard?> = runCatching {
+        val response = api.getLatestScenario(sessionId)
+        response.scenario?.let { dto ->
+            ScenarioCard(
+                persona = dto.persona.toDomain(),
+                title = dto.title,
+                setting = dto.setting,
+                emoji = dto.emoji,
+            )
+        }
     }
 }
 

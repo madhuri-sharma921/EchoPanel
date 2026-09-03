@@ -5,13 +5,16 @@ import androidx.lifecycle.viewModelScope
 import com.echopanel.app.domain.model.AgentActivityState
 import com.echopanel.app.domain.model.CallState
 import com.echopanel.app.domain.model.PersonaRole
+import com.echopanel.app.domain.model.ScenarioCard
 import com.echopanel.app.domain.model.TranscriptTurn
 import com.echopanel.app.domain.repository.AgoraCallRepository
 import com.echopanel.app.domain.usecase.GetAgoraTokenUseCase
+import com.echopanel.app.domain.usecase.GetLatestScenarioUseCase
 import com.echopanel.app.domain.usecase.LogConsentUseCase
 import com.echopanel.app.domain.usecase.StartAgentUseCase
 import com.echopanel.app.domain.usecase.StartInterviewSessionUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,6 +30,7 @@ data class InterviewUiState(
     val showConsentDialog: Boolean = false,
     val consentGiven: Boolean = false,
     val errorMessage: String? = null,
+    val scenario: ScenarioCard? = null,
 )
 
 @HiltViewModel
@@ -35,6 +39,7 @@ class InterviewViewModel @Inject constructor(
     private val logConsent: LogConsentUseCase,
     private val getAgoraToken: GetAgoraTokenUseCase,
     private val startAgentUseCase: StartAgentUseCase,
+    private val getLatestScenario: GetLatestScenarioUseCase,
     private val agoraCallRepository: AgoraCallRepository,
 ) : ViewModel() {
 
@@ -106,7 +111,7 @@ class InterviewViewModel @Inject constructor(
         }
     }
 
-    /** Lets the candidate interrupt the AI mid-speech — the "interruptible" requirement. */
+
     fun onInterruptAgent() {
         viewModelScope.launch {
             agoraCallRepository.interruptAgent().onFailure { error ->
@@ -138,6 +143,7 @@ class InterviewViewModel @Inject constructor(
                                 )
                             }
                         }
+                        pollForScenario(sessionId)
                     }.onFailure { error ->
                         _uiState.update {
                             it.copy(callState = CallState.Error(error.message ?: "Call failed"))
@@ -153,6 +159,21 @@ class InterviewViewModel @Inject constructor(
                         )
                     }
                 }
+        }
+    }
+
+    private fun pollForScenario(sessionId: String) {
+        viewModelScope.launch {
+            var lastSeenTitle: String? = null
+            while (_uiState.value.callState == CallState.Connected) {
+                getLatestScenario(sessionId).onSuccess { scenario ->
+                    if (scenario?.title != lastSeenTitle) {
+                        lastSeenTitle = scenario?.title
+                        _uiState.update { it.copy(scenario = scenario) }
+                    }
+                }
+                delay(4000)
+            }
         }
     }
 

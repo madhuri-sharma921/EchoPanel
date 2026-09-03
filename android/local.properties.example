@@ -2,4 +2,4 @@
 sdk.dir=/path/to/Android/sdk
 
 # Agora App ID from https://console.agora.io — wire into app/build.gradle.kts
-# buildConfigField("String", "AGORA_APP_ID", "\"your-agora-app-id\"")
+# buildConfigField("String", "AGORA_APP_ID", "\"a4fd62660db6488296360ec5a48dfbd2\"")

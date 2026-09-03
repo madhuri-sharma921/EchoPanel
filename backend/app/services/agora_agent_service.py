@@ -1,48 +1,61 @@
 """
 Starts and stops Agora Conversational AI agents for a session's voice
-channel. The agent is the "AI interviewer" that actually joins the RTC
-channel, runs ASR + TTS, and calls our own /v1/chat/completions bridge
-(see llm_bridge.py) instead of a raw LLM provider — that bridge is what
-lets Agora's engine drive our existing persona / Context Graph / Turn
-Arbiter logic instead of a single undifferentiated chatbot.
+channel. The agent acts as the interviewer by joining the RTC
+channel, managing ASR + TTS, and querying the backend LLM bridge.
 """
 import base64
+import logging
+import os
 import time
+from typing import Any, Dict
 
 import httpx
-
-from app.core.config import get_settings
 from agora_token_builder import RtcTokenBuilder
+
+logger = logging.getLogger("echopanel.agora_agent")
 
 AGORA_API_BASE = "https://api.agora.io/api/conversational-ai-agent/v2/projects"
 
-# Same publisher role used for the client-side RTC token in agora_token_service.
+# Fixed deterministic UIDs to guarantee audio subscription
+CANDIDATE_UID = "1001"
+AGENT_UID = "9999"
+
 ROLE_PUBLISHER = 1
-AGENT_TOKEN_EXPIRY_SECONDS = 86400  # Agora's documented max for these tokens.
+AGENT_TOKEN_EXPIRY_SECONDS = 86400  # 24 hours
+
+
+def _get_env(key: str) -> str:
+    """Helper to retrieve and sanitize environment variables."""
+    val = os.getenv(key, "")
+    return val.strip().strip('"').strip("'")
 
 
 def _basic_auth_header() -> str:
-    settings = get_settings()
-    if not settings.agora_customer_key or not settings.agora_customer_secret:
+    customer_key = _get_env("AGORA_CUSTOMER_KEY") or _get_env("AGORA_CUSTOMER_ID")
+    customer_secret = _get_env("AGORA_CUSTOMER_SECRET")
+
+    if not customer_key or not customer_secret:
         raise ValueError(
-            "AGORA_CUSTOMER_KEY and AGORA_CUSTOMER_SECRET must be set in "
-            ".env before starting a Conversational AI agent."
+            "AGORA_CUSTOMER_KEY and AGORA_CUSTOMER_SECRET must be set in .env."
         )
-    raw = f"{settings.agora_customer_key}:{settings.agora_customer_secret}"
-    encoded = base64.b64encode(raw.encode()).decode()
+
+    raw_credentials = f"{customer_key}:{customer_secret}"
+    encoded = base64.b64encode(raw_credentials.encode("utf-8")).decode("utf-8")
     return f"Basic {encoded}"
 
 
 def _build_agent_token(channel_name: str, agent_uid: str) -> str:
-    """
-    Agent join requires its own RTC token, scoped to the agent's own uid
-    (distinct from the candidate's uid) in the same channel.
-    """
-    settings = get_settings()
+    """Builds an RTC join token for the agent."""
+    app_id = _get_env("AGORA_APP_ID")
+    app_cert = _get_env("AGORA_APP_CERTIFICATE")
+
+    if not app_id or not app_cert:
+        raise ValueError("AGORA_APP_ID and AGORA_APP_CERTIFICATE must be set in .env")
+
     expire_at = int(time.time()) + AGENT_TOKEN_EXPIRY_SECONDS
     return RtcTokenBuilder.buildTokenWithUid(
-        settings.agora_app_id,
-        settings.agora_app_certificate,
+        app_id,
+        app_cert,
         channel_name,
         int(agent_uid),
         ROLE_PUBLISHER,
@@ -51,58 +64,53 @@ def _build_agent_token(channel_name: str, agent_uid: str) -> str:
 
 
 def start_agent(session_id: str, persona_greeting: str) -> dict:
-    """
-    Starts a Conversational AI agent in the given session's channel. The
-    LLM is pointed at our own backend's OpenAI-compatible bridge endpoint
-    so Agora's engine drives our persona logic instead of calling OpenAI
-    (or any other provider) directly.
-    """
-    settings = get_settings()
-    if not settings.public_backend_url:
-        raise ValueError(
-            "PUBLIC_BACKEND_URL must be set in .env — Agora's cloud agent "
-            "needs a publicly reachable URL to call back into this "
-            "backend's /v1/chat/completions bridge. A LAN address like "
-            "192.168.x.x will not work; use a tunnel (ngrok, Cloudflare "
-            "Tunnel) during development."
-        )
+    """Starts the Agora Conversational AI agent with backoff retries."""
+    app_id = _get_env("AGORA_APP_ID")
+    public_url = _get_env("PUBLIC_BACKEND_URL")
+    webhook_secret = _get_env("AGORA_WEBHOOK_SECRET")
+    deepgram_key = _get_env("DEEPGRAM_API_KEY")
 
-    channel_name = session_id
-    agent_uid = "9999"  # Fixed uid for the agent, distinct from candidate uid=0.
-    agent_token = _build_agent_token(channel_name, agent_uid)
+    if not app_id:
+        raise ValueError("AGORA_APP_ID must be set in .env")
+    if not public_url:
+        raise ValueError("PUBLIC_BACKEND_URL must be set in .env")
+    if not deepgram_key:
+        raise ValueError("DEEPGRAM_API_KEY must be set in .env")
 
-    payload = {
-        "name": f"echopanel-{session_id}",
+    clean_public_url = public_url.rstrip("/")
+    channel_name = str(session_id)
+    agent_token = _build_agent_token(channel_name, AGENT_UID)
+
+    # Custom Deepgram ASR payload without rejected credential_mode
+    asr_config: Dict[str, Any] = {
+        "vendor": "deepgram",
+        "params": {
+            "api_key": deepgram_key,
+            "url": "wss://api.deepgram.com/v1/listen",
+            "model": "nova-3",
+            "language": "en-US",
+        },
+    }
+
+    payload: Dict[str, Any] = {
+        "name": f"echopanel-{session_id[:8]}",
         "properties": {
             "channel": channel_name,
             "token": agent_token,
-            "agent_rtc_uid": agent_uid,
-            "remote_rtc_uids": ["0"],
+            "agent_rtc_uid": AGENT_UID,
+            "remote_rtc_uids": [CANDIDATE_UID],
             "enable_string_uid": False,
             "idle_timeout": 600,
             "advanced_features": {
-                # Required for the client-side toolkit to receive live
-                # transcript + agent-state events over Signaling (RTM).
                 "enable_rtm": True,
             },
             "parameters": {
                 "data_channel": "rtm",
             },
-            "asr": {
-                "credential_mode": "managed",
-                "vendor": "deepgram",
-                "params": {
-                    "url": "wss://api.deepgram.com/v1/listen",
-                    "model": "nova-3",
-                    "language": "en-US",
-                },
-            },
+            "asr": asr_config,
             "llm": {
-                # Points at OUR backend, not a third-party LLM vendor — no
-                # credential_mode/vendor here; Agora just POSTs to this URL
-                # in OpenAI's chat-completions format (see llm_bridge.py).
-                "url": f"{settings.public_backend_url.rstrip('/')}/v1/chat/completions/{session_id}",
-                "api_key": settings.agora_webhook_secret or "unused",
+                "url": f"{clean_public_url}/v1/chat/completions/{session_id}",
+                "api_key": webhook_secret or "unused",
                 "system_messages": [
                     {
                         "role": "system",
@@ -119,7 +127,9 @@ def start_agent(session_id: str, persona_greeting: str) -> dict:
                     "Sorry, could you repeat that? I didn't quite catch it."
                 ),
                 "max_history": 20,
-                "params": {"model": "gpt-4o"},
+                "params": {
+                    "model": _get_env("OPENAI_MODEL") or "llama-3.3-70b-versatile"
+                },
             },
             "tts": {
                 "credential_mode": "managed",
@@ -133,27 +143,72 @@ def start_agent(session_id: str, persona_greeting: str) -> dict:
         },
     }
 
-    response = httpx.post(
-        f"{AGORA_API_BASE}/{settings.agora_app_id}/join",
-        headers={
-            "Authorization": _basic_auth_header(),
-            "Content-Type": "application/json",
-        },
-        json=payload,
-        timeout=15.0,
-    )
-    if response.status_code >= 400:
-        raise RuntimeError(
-            f"Agora join API returned {response.status_code}: {response.text}"
-        )
-    return response.json()
+    url = f"{AGORA_API_BASE}/{app_id}/join"
+    headers = {
+        "Authorization": _basic_auth_header(),
+        "Content-Type": "application/json",
+    }
+
+    max_retries = 3
+    backoff = 1.5
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            logger.info(
+                "Starting Agora agent on project %s for channel %s (attempt %d/%d)...",
+                app_id,
+                channel_name,
+                attempt,
+                max_retries,
+            )
+            with httpx.Client(timeout=25.0) as client:
+                response = client.post(url, headers=headers, json=payload)
+
+            if response.status_code in (200, 201):
+                logger.info("Agora agent joined session %s successfully", session_id)
+                return response.json()
+
+            if response.status_code >= 500 and attempt < max_retries:
+                logger.warning(
+                    "Agora join returned %d: %s. Retrying in %.1fs...",
+                    response.status_code,
+                    response.text,
+                    backoff,
+                )
+                time.sleep(backoff)
+                backoff *= 2
+                continue
+
+            logger.error(
+                "Agora join API failed: status=%s, url=%s, body=%s",
+                response.status_code,
+                url,
+                response.text,
+            )
+            raise RuntimeError(
+                f"Agora join API returned {response.status_code}: {response.text}"
+            )
+
+        except httpx.RequestError as exc:
+            logger.warning("Network failure contacting Agora API: %s", exc)
+            if attempt == max_retries:
+                raise RuntimeError(f"Network error calling Agora: {exc}") from exc
+            time.sleep(backoff)
+            backoff *= 2
+
+    raise RuntimeError("Agora agent start failed after retries.")
 
 
 def stop_agent(agent_id: str) -> None:
-    settings = get_settings()
-    response = httpx.post(
-        f"{AGORA_API_BASE}/{settings.agora_app_id}/agents/{agent_id}/leave",
-        headers={"Authorization": _basic_auth_header()},
-        timeout=15.0,
-    )
-    response.raise_for_status()
+    """Stops an active Agora agent."""
+    app_id = _get_env("AGORA_APP_ID")
+    if not app_id:
+        raise ValueError("AGORA_APP_ID must be set in .env")
+
+    url = f"{AGORA_API_BASE}/{app_id}/agents/{agent_id}/leave"
+    headers = {"Authorization": _basic_auth_header()}
+
+    logger.info("Stopping Agora agent %s on project %s", agent_id, app_id)
+    with httpx.Client(timeout=15.0) as client:
+        response = client.post(url, headers=headers)
+        response.raise_for_status()
