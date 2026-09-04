@@ -33,7 +33,29 @@ data class TranscriptTurn(
     val text: String,
     val timestampMs: Long,
     val isCandidate: Boolean,
+    // Small reaction emoji shown next to this turn in the UI — null means
+    // "no reaction" (e.g. the candidate's own lines, or a persona line with
+    // nothing notable flagged). Derived from the backend's isVague /
+    // contradictionDetected flags via reactionEmojiFor() below, so there is
+    // one single place that decides what each combination looks like.
+    val reactionEmoji: String? = null,
 )
+
+/**
+ * Maps the backend's per-turn signals to a single reaction emoji for the UI.
+ *
+ * - contradictionDetected wins over vagueness when both are true — being
+ *   caught in a contradiction is the more significant moment for the
+ *   candidate to see flagged.
+ * - A confident, non-contradictory, substantive answer gets an encouraging
+ *   👍 rather than no reaction at all, so the panel visibly "reacts" on
+ *   every real answer, not only on problems.
+ */
+fun reactionEmojiFor(isVague: Boolean, contradictionDetected: Boolean): String = when {
+    contradictionDetected -> "⚡"
+    isVague -> "🤔"
+    else -> "👍"
+}
 
 data class TurnResult(
     val nextPersona: PersonaRole,

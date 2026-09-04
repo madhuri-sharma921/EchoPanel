@@ -358,12 +358,25 @@ private fun TranscriptBubble(turn: TranscriptTurn) {
             horizontalAlignment = if (isCandidate) Alignment.End else Alignment.Start,
         ) {
             if (!isCandidate) {
-                Text(
-                    text = turn.speaker,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(start = 14.dp, bottom = 3.dp),
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = turn.speaker,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(start = 14.dp, bottom = 3.dp),
+                    )
+                    // Reaction emoji for this persona's turn — e.g. 🤔 for a
+                    // vague answer, ⚡ for a caught contradiction, 👍 for a
+                    // solid, engaged answer. Gives the panel a visible,
+                    // at-a-glance "reaction" beyond just the spoken text.
+                    turn.reactionEmoji?.let { emoji ->
+                        Text(
+                            text = emoji,
+                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.padding(start = 4.dp, bottom = 3.dp),
+                        )
+                    }
+                }
             }
             Surface(
                 color = if (isCandidate) {

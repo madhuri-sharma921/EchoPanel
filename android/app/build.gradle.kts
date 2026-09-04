@@ -20,7 +20,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // Backend base URL and Agora App ID — override per build variant / local.properties
-        buildConfigField("String", "BACKEND_BASE_URL", "\"http://192.168.1.9:8000/\"")
+        buildConfigField("String", "BACKEND_BASE_URL", "\"https://lagging-sprinkler-mastiff.ngrok-free.dev/\"")
         buildConfigField("String", "AGORA_APP_ID", "\"a4fd62660db6488296360ec5a48dfbd2\"")
     }
 
