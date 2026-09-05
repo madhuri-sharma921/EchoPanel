@@ -39,6 +39,16 @@ class Settings(BaseSettings):
     # Vagueness threshold: confidence below this flags an answer as vague
     vagueness_confidence_threshold: float = 0.4
 
+    # Cheating-detection thresholds (see services/cheating_detector.py).
+    # Accumulated signal-strength totals at/above these raise a CheatFlag
+    # of the corresponding severity for a session.
+    cheat_flag_low_threshold: float = 0.4
+    cheat_flag_medium_threshold: float = 0.8
+    cheat_flag_high_threshold: float = 1.4
+    # An answer below this many characters-per-second-of-silence-preceding
+    # is considered implausibly fast for its length (see _flag_answer_speed).
+    cheat_min_seconds_per_100_chars: float = 2.0
+
     cors_allow_origins: list[str] = ["*"]
 
 

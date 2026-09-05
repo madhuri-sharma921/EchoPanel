@@ -22,6 +22,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from app.models.schemas import ScenarioCard, TurnLogEntry
 from app.personas.engine import extract_claim, generate_followup
+from app.services.cheating_detector import detect_text_signals, record_signals
 from app.services.context_graph_store import get_context_graph_store
 from app.services.contradiction_detector import process_new_claim
 from app.services.difficulty_controller import update_competence
@@ -102,6 +103,21 @@ async def chat_completions_bridge(session_id: UUID, request: Request) -> dict:
     )
     claim = process_new_claim(claim, graph)
     graph.add_node(claim)
+
+    # Text-derived cheating signals on this live-voice turn too — this is
+    # the path Agora actually calls during a real call (see module
+    # docstring); /agora/turn runs the same check for the non-live/manual
+    # test path. Client-reported video/audio signals arrive independently
+    # via POST /proctoring/{session_id}/signal and accumulate into the
+    # same session.cheat_signals log either way.
+    prior_answers = [t.candidate_answer for t in session.turn_log]
+    text_signals = detect_text_signals(
+        answer_text=candidate_text,
+        prior_answers=prior_answers,
+        seconds_since_question=None,
+        transcript_timestamp_ms=int(time.time() * 1000),
+    )
+    record_signals(session, text_signals)
 
     competence = update_competence(
         session, topic=claim.topic, observed_score=claim.confidence

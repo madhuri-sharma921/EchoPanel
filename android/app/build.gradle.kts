@@ -94,6 +94,15 @@ dependencies {
     // publicly; voice itself works fully on RTC alone.)
     implementation("io.agora.rtc:full-sdk:4.3.2")
 
+    // CameraX + ML Kit face detection — on-device video integrity signals
+    // (multiple faces / no face / gaze) for the cheating-detection feature.
+    // Runs entirely on-device; only the resulting signal (e.g. "2 faces
+    // detected") is sent to the backend, never a frame or video stream.
+    implementation("androidx.camera:camera-core:1.3.4")
+    implementation("androidx.camera:camera-camera2:1.3.4")
+    implementation("androidx.camera:camera-lifecycle:1.3.4")
+    implementation("com.google.mlkit:face-detection:16.1.7")
+
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
     testImplementation("app.cash.turbine:turbine:1.1.0")

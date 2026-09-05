@@ -12,13 +12,15 @@ playback; our job is purely the reasoning layer it calls out to:
   3. We return the text for Agora to speak via the chosen persona's TTS
      voice (Agora supports per-persona provider/voice selection).
 """
+from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.models.schemas import PersonaRole, ScenarioCard, TranscriptEntry
+from app.models.schemas import CheatSeverity, PersonaRole, ScenarioCard, TranscriptEntry
 from app.personas.engine import extract_claim, generate_followup
 from app.services.agora_token_service import generate_rtc_token
+from app.services.cheating_detector import detect_text_signals, record_signals
 from app.services.context_graph_store import ContextGraphStore, get_context_graph_store
 from app.services.contradiction_detector import process_new_claim
 from app.services.difficulty_controller import update_competence
@@ -71,6 +73,10 @@ class AgoraTurnRequest(BaseModel):
     transcript_timestamp_ms: int
     # Which persona's question the candidate was answering.
     responding_to: PersonaRole
+    # Optional: seconds between the question being spoken and this answer
+    # arriving, if the caller can measure it. Feeds the "answer arrived
+    # implausibly fast for its length" cheating signal — safe to omit.
+    seconds_since_question: float | None = None
 
 
 class AgoraTurnResponse(BaseModel):
@@ -78,6 +84,12 @@ class AgoraTurnResponse(BaseModel):
     spoken_text: str
     is_vague: bool
     contradiction_detected: bool
+    # New cheating flag raised by THIS turn's text analysis, if the
+    # accumulated signal strength crossed a new severity threshold — null
+    # on most turns. Historical/lower-severity flags are available via
+    # GET /proctoring/{session_id}/status, not repeated here every turn.
+    new_cheat_flag_severity: Optional[CheatSeverity] = None
+    new_cheat_flag_summary: Optional[str] = None
 
 
 @router.post("/turn", response_model=AgoraTurnResponse)
@@ -104,6 +116,19 @@ async def handle_turn(
     claim = process_new_claim(claim, graph)
     graph.add_node(claim)
 
+    # 2b. Text-derived cheating signals — always runs, no client cooperation
+    # needed. Client-reported video/audio signals arrive separately via
+    # POST /proctoring/{session_id}/signal and accumulate into the same
+    # session.cheat_signals log (see api/proctoring.py).
+    prior_answers = [t.candidate_answer for t in session.turn_log]
+    text_signals = detect_text_signals(
+        answer_text=payload.candidate_text,
+        prior_answers=prior_answers,
+        seconds_since_question=payload.seconds_since_question,
+        transcript_timestamp_ms=payload.transcript_timestamp_ms,
+    )
+    new_flag = record_signals(session, text_signals)
+
     # 3. Update rolling per-topic competence -> next question depth.
     competence = update_competence(
         session, topic=claim.topic, observed_score=claim.confidence
@@ -128,11 +153,16 @@ async def handle_turn(
     if scenario is not None:
         session.latest_scenario = ScenarioCard(**scenario)
 
+    if hasattr(store, "update_session"):
+        store.update_session(session)
+
     return AgoraTurnResponse(
         next_persona=winner.persona,
         spoken_text=spoken_text,
         is_vague=claim.is_vague,
         contradiction_detected=bool(claim.contradicts),
+        new_cheat_flag_severity=new_flag.severity if new_flag else None,
+        new_cheat_flag_summary=new_flag.summary if new_flag else None,
     )
 
 

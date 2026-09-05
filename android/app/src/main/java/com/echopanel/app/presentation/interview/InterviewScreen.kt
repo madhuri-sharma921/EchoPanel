@@ -1,5 +1,9 @@
 package com.echopanel.app.presentation.interview
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.RepeatMode
@@ -39,18 +43,28 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import com.echopanel.app.data.proctoring.FaceProctoringAnalyzer
 import com.echopanel.app.domain.model.AgentActivityState
 import com.echopanel.app.domain.model.CallState
 import com.echopanel.app.domain.model.PersonaRole
@@ -67,10 +81,54 @@ fun InterviewScreen(
     viewModel: InterviewViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
-
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     LaunchedEffect(Unit) {
         viewModel.startSession(candidateName = candidateName, personas = personas)
+    }
+
+    // Camera permission for on-device face/gaze proctoring signals — this
+    // is an integrity feature, not a hard requirement to run the
+    // interview: a decline just means face-based signals are skipped,
+    // audio/text-derived signals still work regardless.
+    var hasCameraPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
+                    PackageManager.PERMISSION_GRANTED,
+        )
+    }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted -> hasCameraPermission = granted }
+
+    LaunchedEffect(uiState.callState) {
+        if (uiState.callState == CallState.Connected && !hasCameraPermission) {
+            permissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    // Start face-proctoring once connected and permitted; the analyzer
+    // tears down camera resources itself when the lifecycle stops or the
+    // flow is cancelled (see FaceProctoringAnalyzer.observe).
+    LaunchedEffect(uiState.callState, hasCameraPermission) {
+        if (uiState.callState == CallState.Connected && hasCameraPermission) {
+            val analyzer = FaceProctoringAnalyzer(context.applicationContext)
+            viewModel.startFaceProctoring(analyzer, lifecycleOwner)
+        }
+    }
+
+    // App-backgrounding is itself an integrity signal distinct from
+    // camera/mic — observed via the standard lifecycle, no extra
+    // permission needed.
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP && uiState.callState == CallState.Connected) {
+                viewModel.onAppBackgrounded()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     Scaffold(
@@ -100,6 +158,17 @@ fun InterviewScreen(
             }
 
             AnimatedVisibility(
+                visible = uiState.cheatAlerts.any { !it.acknowledged },
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically(),
+            ) {
+                CheatAlertBanner(
+                    alerts = uiState.cheatAlerts,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+
+            AnimatedVisibility(
                 visible = uiState.scenario != null,
                 enter = fadeIn() + expandVertically(),
                 exit = fadeOut() + shrinkVertically(),
@@ -110,6 +179,17 @@ fun InterviewScreen(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     )
                 }
+            }
+
+            if (uiState.callState == CallState.Connected) {
+                ScriptPanel(
+                    script = uiState.script,
+                    isSuggesting = uiState.isSuggestingQuestions,
+                    onRequestSuggestions = viewModel::onRequestSuggestedQuestions,
+                    onAddCustomQuestion = viewModel::onAddCustomQuestion,
+                    onMarkUsed = viewModel::onMarkScriptEntryUsed,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
             }
 
             TranscriptList(

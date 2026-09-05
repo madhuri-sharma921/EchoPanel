@@ -1,12 +1,18 @@
 package com.echopanel.app.data.remote.api
 
+import com.echopanel.app.data.remote.dto.AddCustomQuestionRequestDto
 import com.echopanel.app.data.remote.dto.AgoraTokenResponseDto
 import com.echopanel.app.data.remote.dto.AgoraTurnRequestDto
 import com.echopanel.app.data.remote.dto.AgoraTurnResponseDto
 import com.echopanel.app.data.remote.dto.CreateSessionResponseDto
 import com.echopanel.app.data.remote.dto.FinalReportDto
+import com.echopanel.app.data.remote.dto.ProctoringStatusResponseDto
+import com.echopanel.app.data.remote.dto.ReportSignalRequestDto
+import com.echopanel.app.data.remote.dto.ReportSignalResponseDto
 import com.echopanel.app.data.remote.dto.ScenarioResponseDto
+import com.echopanel.app.data.remote.dto.ScriptResponseDto
 import com.echopanel.app.data.remote.dto.StartAgentResponseDto
+import com.echopanel.app.data.remote.dto.SuggestQuestionsRequestDto
 import com.echopanel.app.data.remote.dto.TurnsResponseDto
 import retrofit2.http.Body
 import retrofit2.http.GET
@@ -48,4 +54,49 @@ interface EchoPanelApi {
         @Path("sessionId") sessionId: String,
         @Query("since_index") sinceIndex: Int,
     ): TurnsResponseDto
+
+    // --- Proctoring / cheating detection ---------------------------
+
+    @POST("proctoring/{sessionId}/signal")
+    suspend fun reportCheatSignal(
+        @Path("sessionId") sessionId: String,
+        @Body request: ReportSignalRequestDto,
+    ): ReportSignalResponseDto
+
+    @GET("proctoring/{sessionId}/status")
+    suspend fun getProctoringStatus(
+        @Path("sessionId") sessionId: String,
+    ): ProctoringStatusResponseDto
+
+    @POST("proctoring/{sessionId}/flags/{flagId}/acknowledge")
+    suspend fun acknowledgeCheatFlag(
+        @Path("sessionId") sessionId: String,
+        @Path("flagId") flagId: String,
+    )
+
+    // --- Shared live script panel -----------------------------------
+
+    @GET("script/{sessionId}")
+    suspend fun getScript(
+        @Path("sessionId") sessionId: String,
+        @Query("since_index") sinceIndex: Int = 0,
+    ): ScriptResponseDto
+
+    @POST("script/{sessionId}/suggest")
+    suspend fun suggestScriptQuestions(
+        @Path("sessionId") sessionId: String,
+        @Body request: SuggestQuestionsRequestDto,
+    ): ScriptResponseDto
+
+    @POST("script/{sessionId}/custom")
+    suspend fun addCustomScriptQuestion(
+        @Path("sessionId") sessionId: String,
+        @Body request: AddCustomQuestionRequestDto,
+    ): ScriptResponseDto
+
+    @POST("script/{sessionId}/entries/{entryId}/mark_used")
+    suspend fun markScriptEntryUsed(
+        @Path("sessionId") sessionId: String,
+        @Path("entryId") entryId: String,
+    )
 }

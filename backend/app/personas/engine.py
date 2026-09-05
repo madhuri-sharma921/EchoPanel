@@ -334,3 +334,51 @@ async def generate_followup(
         }
 
     return spoken_text, scenario
+
+
+async def generate_suggested_questions(
+    role: PersonaRole,
+    graph: ContextGraph,
+    topic_hint: str | None,
+    count: int = 3,
+) -> list[str]:
+    """
+    Generates a short list of candidate next-questions for this persona,
+    grounded in the same Context Graph slice generate_followup() uses —
+    but WITHOUT committing to asking any of them. This backs the shared
+    live "script panel" (api/script.py): the human interviewer sees these
+    as suggestions and can pick one, edit one, or type their own instead,
+    rather than the panel only ever being able to auto-ask on its own.
+    """
+    settings = get_settings()
+    client = _client()
+    persona = PERSONA_DEFINITIONS[role]
+    context = _graph_context_for_prompt(graph, topic_hint)
+
+    response = await client.chat.completions.create(
+        model=settings.openai_model,
+        messages=[
+            {"role": "system", "content": persona.system_prompt},
+            {
+                "role": "user",
+                "content": (
+                    f"Rubric: {persona.rubric}\n"
+                    f"Relevant claims from the shared context graph so far:\n"
+                    f"{context}\n\n"
+                    f"Suggest {count} distinct candidate next-questions this "
+                    "persona could ask, grounded in the graph above (e.g. "
+                    "following up on an unchallenged or vague claim). Keep "
+                    "each under 2 sentences, natural spoken register. "
+                    'Respond as strict JSON: {"questions": ["...", "..."]}'
+                ),
+            },
+        ],
+        response_format={"type": "json_object"},
+    )
+    data = _safe_json_parse(
+        response.choices[0].message.content, context="generate_suggested_questions"
+    )
+    questions = data.get("questions")
+    if not isinstance(questions, list) or not questions:
+        return []
+    return [str(q).strip() for q in questions if str(q).strip()][:count]

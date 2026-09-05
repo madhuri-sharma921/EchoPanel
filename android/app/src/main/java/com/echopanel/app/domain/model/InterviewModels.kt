@@ -133,3 +133,55 @@ data class ScenarioCard(
     val setting: String,
     val emoji: String,
 )
+
+// --- Cheating / integrity signals -----------------------------------------
+
+enum class CheatSeverity { LOW, MEDIUM, HIGH }
+
+/**
+ * The kinds of on-device (client-reported) integrity signal this app can
+ * detect and report to the backend, mirrored from CheatSignalType in
+ * backend/app/models/schemas.py. Text-derived signals (fluency jump,
+ * copy-paste style, answer-too-fast) are computed server-side and never
+ * appear here — only what THIS app itself observes.
+ */
+enum class ClientCheatSignalType {
+    MULTIPLE_FACES,
+    NO_FACE_DETECTED,
+    GAZE_OFF_SCREEN,
+    EXTRA_VOICE_DETECTED,
+    BACKGROUND_WHISPERING,
+    APP_BACKGROUNDED,
+    SCREEN_SHARE_OR_MIRROR,
+}
+
+/**
+ * A raised integrity alert, evidence-linked back to the signals that
+ * caused it (see CheatFlag in schemas.py) — shown to the interviewer as a
+ * banner, never a bare "cheating detected" with no explanation.
+ */
+data class CheatAlert(
+    val id: String,
+    val severity: CheatSeverity,
+    val summary: String,
+    val transcriptTimestampMs: Long,
+    val acknowledged: Boolean = false,
+)
+
+// --- Shared live script panel ----------------------------------------------
+
+enum class ScriptQuestionSource { SUGGESTED, CUSTOM }
+
+/**
+ * One entry in the shared script panel BOTH the interviewer and the
+ * interviewee see — either an AI-suggested next question grounded in the
+ * Context Graph, or one the human interviewer typed in live. Mirrors
+ * ScriptEntry in backend/app/models/schemas.py.
+ */
+data class ScriptEntry(
+    val id: String,
+    val source: ScriptQuestionSource,
+    val text: String,
+    val persona: PersonaRole?,
+    val used: Boolean = false,
+)

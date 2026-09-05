@@ -7,6 +7,12 @@
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Front camera, used only for on-device face-count/gaze integrity
+         signals (see ProctoringSignalCollector). No video is ever
+         recorded, stored, or transmitted — only the resulting structured
+         signal (e.g. "2 faces detected") reaches the backend. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.front" android:required="false" />
 
     <application
         android:name=".EchoPanelApplication"

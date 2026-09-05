@@ -5,7 +5,7 @@ load_dotenv(override=True)
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import agora_hooks, llm_bridge, sessions
+from app.api import agora_hooks, llm_bridge, proctoring, script, sessions
 from app.core.config import get_settings
 
 logging.basicConfig(
@@ -35,6 +35,8 @@ app.add_middleware(
 app.include_router(sessions.router)
 app.include_router(agora_hooks.router)
 app.include_router(llm_bridge.router)
+app.include_router(proctoring.router)
+app.include_router(script.router)
 
 
 @app.get("/health")
