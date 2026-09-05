@@ -86,3 +86,20 @@ data class ScenarioCardDto(
 data class ScenarioResponseDto(
     val scenario: ScenarioCardDto? = null,
 )
+
+@Serializable
+data class TurnLogEntryDto(
+    val index: Int,
+    val persona: PersonaRoleDto,
+    @SerialName("question_text") val questionText: String,
+    @SerialName("candidate_answer") val candidateAnswer: String,
+    @SerialName("is_vague") val isVague: Boolean = false,
+    @SerialName("contradiction_detected") val contradictionDetected: Boolean = false,
+    @SerialName("reaction_emoji") val reactionEmoji: String = "",
+    @SerialName("transcript_timestamp_ms") val transcriptTimestampMs: Long,
+)
+
+@Serializable
+data class TurnsResponseDto(
+    val turns: List<TurnLogEntryDto> = emptyList(),
+)

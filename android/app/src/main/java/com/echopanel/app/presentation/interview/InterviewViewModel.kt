@@ -4,12 +4,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.echopanel.app.domain.model.AgentActivityState
 import com.echopanel.app.domain.model.CallState
+import com.echopanel.app.domain.model.LoggedTurn
 import com.echopanel.app.domain.model.PersonaRole
 import com.echopanel.app.domain.model.ScenarioCard
 import com.echopanel.app.domain.model.TranscriptTurn
+import com.echopanel.app.domain.model.reactionEmojiFor
 import com.echopanel.app.domain.repository.AgoraCallRepository
 import com.echopanel.app.domain.usecase.GetAgoraTokenUseCase
 import com.echopanel.app.domain.usecase.GetLatestScenarioUseCase
+import com.echopanel.app.domain.usecase.GetTurnsUseCase
 import com.echopanel.app.domain.usecase.LogConsentUseCase
 import com.echopanel.app.domain.usecase.StartAgentUseCase
 import com.echopanel.app.domain.usecase.StartInterviewSessionUseCase
@@ -40,6 +43,7 @@ class InterviewViewModel @Inject constructor(
     private val getAgoraToken: GetAgoraTokenUseCase,
     private val startAgentUseCase: StartAgentUseCase,
     private val getLatestScenario: GetLatestScenarioUseCase,
+    private val getTurns: GetTurnsUseCase,
     private val agoraCallRepository: AgoraCallRepository,
 ) : ViewModel() {
 
@@ -144,6 +148,7 @@ class InterviewViewModel @Inject constructor(
                             }
                         }
                         pollForScenario(sessionId)
+                        pollForTurns(sessionId)
                     }.onFailure { error ->
                         _uiState.update {
                             it.copy(callState = CallState.Error(error.message ?: "Call failed"))
@@ -173,6 +178,43 @@ class InterviewViewModel @Inject constructor(
                     }
                 }
                 delay(4000)
+            }
+        }
+    }
+
+
+    private fun pollForTurns(sessionId: String) {
+        viewModelScope.launch {
+            var nextIndex = 0
+            var pendingReactionEmoji: String? = null
+            while (_uiState.value.callState == CallState.Connected) {
+                getTurns(sessionId, nextIndex).onSuccess { turns ->
+                    if (turns.isNotEmpty()) {
+                        val newBubbles = mutableListOf<TranscriptTurn>()
+                        for (turn in turns) {
+                            newBubbles += TranscriptTurn(
+                                speaker = turn.persona.displayName,
+                                text = turn.questionText,
+                                timestampMs = turn.transcriptTimestampMs,
+                                isCandidate = false,
+                                reactionEmoji = pendingReactionEmoji,
+                            )
+                            newBubbles += TranscriptTurn(
+                                speaker = "You",
+                                text = turn.candidateAnswer,
+                                timestampMs = turn.transcriptTimestampMs,
+                                isCandidate = true,
+                            )
+
+                            pendingReactionEmoji = turn.reactionEmoji.ifBlank {
+                                reactionEmojiFor(turn.isVague, turn.contradictionDetected)
+                            }
+                        }
+                        _uiState.update { it.copy(transcript = it.transcript + newBubbles) }
+                        nextIndex = turns.maxOf { it.index } + 1
+                    }
+                }
+                delay(2000)
             }
         }
     }

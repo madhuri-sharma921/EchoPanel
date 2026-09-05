@@ -6,6 +6,7 @@ import com.echopanel.app.data.remote.dto.PersonaRoleDto
 import com.echopanel.app.domain.model.AgoraToken
 import com.echopanel.app.domain.model.FinalReport
 import com.echopanel.app.domain.model.InterviewSession
+import com.echopanel.app.domain.model.LoggedTurn
 import com.echopanel.app.domain.model.PersonaRole
 import com.echopanel.app.domain.model.ScenarioCard
 import com.echopanel.app.domain.model.TurnResult
@@ -110,6 +111,23 @@ class InterviewRepositoryImpl @Inject constructor(
             )
         }
     }
+
+    override suspend fun fetchTurns(sessionId: String, sinceIndex: Int): Result<List<LoggedTurn>> =
+        runCatching {
+            val response = api.getTurns(sessionId, sinceIndex)
+            response.turns.map { dto ->
+                LoggedTurn(
+                    index = dto.index,
+                    persona = dto.persona.toDomain(),
+                    questionText = dto.questionText,
+                    candidateAnswer = dto.candidateAnswer,
+                    isVague = dto.isVague,
+                    contradictionDetected = dto.contradictionDetected,
+                    reactionEmoji = dto.reactionEmoji,
+                    transcriptTimestampMs = dto.transcriptTimestampMs,
+                )
+            }
+        }
 }
 
 private fun PersonaRoleDto.toWireValue(): String = when (this) {

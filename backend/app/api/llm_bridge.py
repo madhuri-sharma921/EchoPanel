@@ -20,7 +20,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request
 
-from app.models.schemas import ScenarioCard
+from app.models.schemas import ScenarioCard, TurnLogEntry
 from app.personas.engine import extract_claim, generate_followup
 from app.services.context_graph_store import get_context_graph_store
 from app.services.contradiction_detector import process_new_claim
@@ -29,6 +29,16 @@ from app.services.turn_arbiter import compute_interest_scores, pick_next_persona
 
 logger = logging.getLogger("echopanel.llm_bridge")
 router = APIRouter(tags=["llm-bridge"])
+
+
+def _fallback_emoji(claim) -> str:
+    """Old fixed 3-way mapping, used only if the LLM didn't supply a
+    content-aware reaction_emoji for this answer."""
+    if claim.contradicts:
+        return "⚡"
+    if claim.is_vague:
+        return "🤔"
+    return "👍"
 
 
 def _latest_user_message(messages: list[dict]) -> str | None:
@@ -114,6 +124,34 @@ async def chat_completions_bridge(session_id: UUID, request: Request) -> dict:
     )
     if scenario is not None:
         session.latest_scenario = ScenarioCard(**scenario)
+
+    # Log this turn: the candidate's answer pairs with whichever question
+    # is currently "pending" (the question `responding_to` asked last
+    # round — stashed on the session when that follow-up was generated).
+    # The freshly generated follow-up becomes the new pending question,
+    # to be paired with the candidate's next answer. This is what the
+    # Android app polls via GET /sessions/{id}/turns to render the live
+    # transcript + reaction emoji — the ClaimNode graph alone doesn't
+    # retain the literal question text a persona asked.
+    pending_question = session.pending_question_text or (
+        "Tell me a bit about a recent project you've worked on."
+    )
+    session.turn_log.append(
+        TurnLogEntry(
+            index=len(session.turn_log),
+            persona=responding_to,
+            question_text=pending_question,
+            candidate_answer=candidate_text,
+            is_vague=claim.is_vague,
+            contradiction_detected=bool(claim.contradicts),
+            # Prefer the LLM's content-aware reaction (e.g. 🍔 for "I'm
+            # hungry", 😂 for a joke); fall back to the old fixed
+            # vague/contradiction mapping only if it didn't return one.
+            reaction_emoji=claim.reaction_emoji or _fallback_emoji(claim),
+            transcript_timestamp_ms=int(time.time() * 1000),
+        )
+    )
+    session.pending_question_text = spoken_text
 
     if body.get("stream"):
         return _streaming_response(session_id, spoken_text)

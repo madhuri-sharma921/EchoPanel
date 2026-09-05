@@ -7,6 +7,7 @@ import com.echopanel.app.data.remote.dto.CreateSessionResponseDto
 import com.echopanel.app.data.remote.dto.FinalReportDto
 import com.echopanel.app.data.remote.dto.ScenarioResponseDto
 import com.echopanel.app.data.remote.dto.StartAgentResponseDto
+import com.echopanel.app.data.remote.dto.TurnsResponseDto
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.POST
@@ -41,4 +42,10 @@ interface EchoPanelApi {
 
     @GET("sessions/{sessionId}/scenario")
     suspend fun getLatestScenario(@Path("sessionId") sessionId: String): ScenarioResponseDto
+
+    @GET("sessions/{sessionId}/turns")
+    suspend fun getTurns(
+        @Path("sessionId") sessionId: String,
+        @Query("since_index") sinceIndex: Int,
+    ): TurnsResponseDto
 }

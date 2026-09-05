@@ -3,6 +3,7 @@ package com.echopanel.app.domain.usecase
 import com.echopanel.app.domain.model.AgoraToken
 import com.echopanel.app.domain.model.FinalReport
 import com.echopanel.app.domain.model.InterviewSession
+import com.echopanel.app.domain.model.LoggedTurn
 import com.echopanel.app.domain.model.PersonaRole
 import com.echopanel.app.domain.model.ScenarioCard
 import com.echopanel.app.domain.model.TurnResult
@@ -69,4 +70,11 @@ class GetLatestScenarioUseCase @Inject constructor(
 ) {
     suspend operator fun invoke(sessionId: String): Result<ScenarioCard?> =
         repository.fetchLatestScenario(sessionId)
+}
+
+class GetTurnsUseCase @Inject constructor(
+    private val repository: InterviewRepository,
+) {
+    suspend operator fun invoke(sessionId: String, sinceIndex: Int): Result<List<LoggedTurn>> =
+        repository.fetchTurns(sessionId, sinceIndex)
 }

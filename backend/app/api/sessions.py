@@ -6,7 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
-from app.models.schemas import FinalReport, InterviewSession, PersonaRole, ScenarioCard
+from app.models.schemas import FinalReport, InterviewSession, PersonaRole, ScenarioCard, TurnLogEntry
 from app.services.agora_agent_service import start_agent, stop_agent
 from app.services.context_graph_store import ContextGraphStore, get_context_graph_store
 from app.services.report_generator import generate_final_report
@@ -19,6 +19,10 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 class StartAgentResponse(BaseModel):
     agent_id: str
     status: str
+
+
+class TurnsResponse(BaseModel):
+    turns: list[TurnLogEntry] = []
 
 
 class ScenarioResponse(BaseModel):
@@ -119,12 +123,20 @@ def start_session_agent(
         )
 
     # Line 86 fix: safely update whether the model is frozen, typed, or standard
+    # Also seed pending_question_text with the opening greeting so the
+    # candidate's first answer gets logged against the question they
+    # actually heard, instead of the llm_bridge's generic fallback.
     if hasattr(session, "model_copy"):
-        session = session.model_copy(update={"agora_agent_id": str(agent_id)})
+        session = session.model_copy(
+            update={"agora_agent_id": str(agent_id), "pending_question_text": greeting}
+        )
     elif hasattr(session, "copy"):
-        session = session.copy(update={"agora_agent_id": str(agent_id)})
+        session = session.copy(
+            update={"agora_agent_id": str(agent_id), "pending_question_text": greeting}
+        )
     else:
         session.agora_agent_id = str(agent_id)
+        session.pending_question_text = greeting
 
     if hasattr(store, "update_session"):
         store.update_session(session)
@@ -175,6 +187,29 @@ def get_final_report(
     except KeyError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     return generate_final_report(session)
+
+
+@router.get("/{session_id}/turns", response_model=TurnsResponse)
+def get_turns(
+    session_id: UUID,
+    since_index: int = Query(0, ge=0),
+    store: ContextGraphStore = Depends(get_context_graph_store),
+) -> TurnsResponse:
+    """
+    Returns turns logged after `since_index` (exclusive) — each one the
+    literal question a persona asked plus the candidate's literal answer,
+    with the vagueness/contradiction signals detected on that answer.
+    The Android app polls this to build the live on-screen transcript
+    (with a reaction emoji per persona turn) alongside the voice call,
+    which Agora's engine otherwise handles entirely off-app.
+    """
+    try:
+        session = store.get_or_404(session_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    turns = [t for t in session.turn_log if t.index >= since_index]
+    return TurnsResponse(turns=turns)
 
 
 @router.get("/{session_id}/scenario", response_model=ScenarioResponse)

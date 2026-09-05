@@ -79,8 +79,20 @@ _CLAIM_EXTRACTION_SCHEMA = {
                 "Low confidence = vague, hand-wavy, or evasive."
             ),
         },
+        "reaction_emoji": {
+            "type": "string",
+            "description": (
+                "A single emoji capturing how a human interviewer would "
+                "genuinely react to this specific answer — not just "
+                "good/bad. Pick whatever fits: confident/solid technical "
+                "answer, funny/joking remark, off-topic aside (e.g. "
+                "saying they're hungry or want a break), nervous/unsure, "
+                "rude or dismissive, evasive, enthusiastic, etc. Choose "
+                "freely from the full emoji range rather than a fixed set."
+            ),
+        },
     },
-    "required": ["topic", "claim", "confidence"],
+    "required": ["topic", "claim", "confidence", "reaction_emoji"],
 }
 
 
@@ -125,7 +137,14 @@ async def extract_claim(
                 "role": "system",
                 "content": (
                     "Extract the candidate's core claim from their answer as "
-                    "strict JSON matching the given schema. Be concise."
+                    "strict JSON matching this schema:\n"
+                    f"{json.dumps(_CLAIM_EXTRACTION_SCHEMA)}\n"
+                    "Be concise. For reaction_emoji, react to what they "
+                    "ACTUALLY said — a confident technical answer, a joke, "
+                    "an off-topic remark (e.g. asking for a break or saying "
+                    "they're hungry), nervousness, rudeness, enthusiasm, "
+                    "evasiveness, etc. all deserve different, specific "
+                    "emoji, not a generic thumbs up/down."
                 ),
             },
             {
@@ -144,12 +163,14 @@ async def extract_claim(
         confidence = float(data.get("confidence", 0.5))
     except (TypeError, ValueError):
         confidence = 0.5
+    reaction_emoji = str(data.get("reaction_emoji") or "").strip()
     return ClaimNode(
         topic=data.get("topic") or topic_hint,
         claim=data.get("claim") or candidate_answer,
         confidence=confidence,
         raised_by=role,
         transcript_timestamp_ms=transcript_timestamp_ms,
+        reaction_emoji=reaction_emoji,
     )
 
 

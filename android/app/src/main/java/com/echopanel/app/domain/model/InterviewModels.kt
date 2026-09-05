@@ -64,6 +64,30 @@ data class TurnResult(
     val contradictionDetected: Boolean,
 )
 
+/**
+ * One full round-trip logged by the backend: the question a persona asked
+ * plus the candidate's answer, and the signals detected on that answer.
+ * Polled from GET /sessions/{id}/turns (see GetTurnsUseCase) to drive the
+ * live on-screen transcript, since Agora's voice engine handles the actual
+ * conversation entirely off-app and never reports it back to the client
+ * on its own.
+ */
+data class LoggedTurn(
+    val index: Int,
+    val persona: PersonaRole,
+    val questionText: String,
+    val candidateAnswer: String,
+    val isVague: Boolean,
+    val contradictionDetected: Boolean,
+    // Content-aware reaction picked by the backend LLM for this specific
+    // answer (confident, joking, off-topic like asking for a break,
+    // nervous, etc.) — empty string means the backend fell back to the
+    // old vague/contradiction-based default (still an emoji, just less
+    // specific), never an actually-missing reaction.
+    val reactionEmoji: String,
+    val transcriptTimestampMs: Long,
+)
+
 data class VerdictItem(
     val competency: String,
     val score: Float,

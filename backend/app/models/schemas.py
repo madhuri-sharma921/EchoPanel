@@ -39,6 +39,13 @@ class ClaimNode(BaseModel):
     transcript_timestamp_ms: int
     contradicts: list[UUID] = Field(default_factory=list)
     is_vague: bool = False
+    # Single emoji the LLM picked to fit the actual content/tone of the
+    # candidate's answer (confident, joking, off-topic like asking for a
+    # break, nervous, etc.) — a free-form reaction rather than a fixed
+    # vague/contradiction/ok 3-way mapping. Falls back to "" when the LLM
+    # didn't return one; the caller (llm_bridge) applies the old
+    # vague/contradiction-based default in that case.
+    reaction_emoji: str = ""
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -51,6 +58,25 @@ class ContextGraph(BaseModel):
 
     def add_node(self, node: ClaimNode) -> None:
         self.nodes.append(node)
+
+
+class TurnLogEntry(BaseModel):
+    """
+    One full round-trip of the live interview: the persona's question, the
+    candidate's answer, and the signals detected on that answer. Populated
+    by the /v1/chat/completions bridge as each turn is processed, and
+    polled by the Android client (GET /sessions/{id}/turns) so the UI can
+    render the running transcript with a reaction emoji per persona turn —
+    the ClaimNode graph alone doesn't carry the literal question text.
+    """
+    index: int
+    persona: PersonaRole
+    question_text: str
+    candidate_answer: str
+    is_vague: bool = False
+    contradiction_detected: bool = False
+    reaction_emoji: str = ""
+    transcript_timestamp_ms: int
 
 
 class InterestScore(BaseModel):
@@ -99,6 +125,11 @@ class InterviewSession(BaseModel):
     agora_agent_id: Optional[str] = None
     last_speaking_persona: Optional[PersonaRole] = None
     latest_scenario: Optional[ScenarioCard] = None
+    turn_log: list[TurnLogEntry] = Field(default_factory=list)
+    # The most recent follow-up spoken to the candidate but not yet
+    # answered — paired with their next answer to form the next
+    # TurnLogEntry (see llm_bridge.chat_completions_bridge).
+    pending_question_text: Optional[str] = None
 
     class Config:
         arbitrary_types_allowed = True

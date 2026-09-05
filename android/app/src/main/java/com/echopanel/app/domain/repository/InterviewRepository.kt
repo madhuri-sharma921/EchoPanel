@@ -4,6 +4,7 @@ import com.echopanel.app.domain.model.AgentActivityState
 import com.echopanel.app.domain.model.AgoraToken
 import com.echopanel.app.domain.model.FinalReport
 import com.echopanel.app.domain.model.InterviewSession
+import com.echopanel.app.domain.model.LoggedTurn
 import com.echopanel.app.domain.model.PersonaRole
 import com.echopanel.app.domain.model.ScenarioCard
 import com.echopanel.app.domain.model.TranscriptTurn
@@ -37,6 +38,9 @@ interface InterviewRepository {
 
 
     suspend fun fetchLatestScenario(sessionId: String): Result<ScenarioCard?>
+
+    /** Fetches turns logged after [sinceIndex] (exclusive) for the live transcript. */
+    suspend fun fetchTurns(sessionId: String, sinceIndex: Int): Result<List<LoggedTurn>>
 }
 
 
