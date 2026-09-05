@@ -96,10 +96,20 @@ wrapper, no local Gradle install needed.
 | 5 personas (Technical, Product/Business, Behavioural, Customer, Hiring Manager) | ✅ implemented |
 | Evidence-linked final report | ✅ implemented |
 | AI-disclosure banner + consent flow | ✅ implemented (Compose UI + backend consent logging) |
+| Cheating/integrity detection (text signals + client-reported video/audio signals) | ✅ implemented, unit-tested — see `services/cheating_detector.py` |
+| On-device face-count/gaze + app-background proctoring signals | ✅ implemented — `android/.../data/proctoring/FaceProctoringAnalyzer.kt` |
+| Shared live script panel (AI-suggested + interviewer's own questions) | ✅ implemented — `api/script.py` + `presentation/interview/ProctoringAndScriptComponents.kt` |
 | OpenAI-backed persona reasoning | ✅ implemented — needs your `OPENAI_API_KEY` |
 | Live Agora voice call (ASR/TTS/interruption) | 🔶 scaffolded — needs your Agora App ID/credentials and the Conversational AI SDK module from Agora's console |
-| Agora token server endpoint | 🔶 not yet built — `android` currently joins with an empty token; add a `/agora/token` endpoint before testing on a secured channel |
+| Agora token server endpoint | ✅ implemented — `POST /agora/token/{session_id}` |
 | Auth on backend endpoints | ⬜ not implemented — anyone with a session ID can call any endpoint; fine for a hackathon demo, not for production |
+
+## Cheating detection & the shared script panel
+
+Two additions layer on top of the core panel without changing its shape:
+
+- **Cheating/integrity detection** (`backend/app/services/cheating_detector.py`) runs two kinds of check. Text signals (a sudden jump from halting to polished answers, copy-paste-style formatting, an answer that arrives implausibly fast for its length) are computed server-side on every turn, no client cooperation needed. Client signals (multiple faces on camera, no face visible, sustained gaze away from the screen, a second voice detected, app backgrounded, screen mirroring) are detected **on-device** by the Android app and reported as small structured signals — never raw audio or video — via `POST /proctoring/{session_id}/signal`. Signals accumulate into evidence-linked `CheatFlag`s: every flag traces back to the exact signals that raised it, the same evidence-linked philosophy as the final report's `VerdictItem`s. Both the interviewer's screen and the candidate's own screen poll the same `GET /proctoring/{session_id}/status`, so nobody sees a different picture of what was flagged — consistent with the project's transparency-by-design stance.
+- **Shared live script panel** (`backend/app/api/script.py`) is a running list of next-questions both interviewer and candidate see identically. Entries are either AI-suggested (grounded in the same Context Graph slice the personas already use, via `generate_suggested_questions()`) or typed live by the human interviewer — both land in the same shared list via `POST /script/{session_id}/custom`.
 
 ## Repo map (details)
 
