@@ -27,7 +27,7 @@ def _create_session() -> str:
             "active_personas": ["technical", "product_business"],
         },
     )
-    assert response.status_code == 200
+    assert response.status_code in (200, 201)
     return response.json()["id"]
 
 

@@ -266,12 +266,21 @@ private fun ScriptEntryRow(entry: ScriptEntry, onMarkUsed: () -> Unit) {
                 )
             }
             if (!entry.used) {
-                IconButton(onClick = onMarkUsed) {
+                Spacer(Modifier.size(8.dp))
+                androidx.compose.material3.FilledTonalButton(
+                    onClick = onMarkUsed,
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    modifier = Modifier.height(32.dp),
+                ) {
                     Icon(
-                        Icons.Filled.CheckCircle,
-                        contentDescription = "Mark as asked",
-                        tint = MaterialTheme.colorScheme.outline,
-                        modifier = Modifier.size(20.dp),
+                        Icons.Filled.AutoAwesome,
+                        contentDescription = "Ask next",
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Spacer(Modifier.size(4.dp))
+                    Text(
+                        "Ask",
+                        style = MaterialTheme.typography.labelMedium,
                     )
                 }
             }

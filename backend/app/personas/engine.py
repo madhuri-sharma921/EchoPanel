@@ -215,6 +215,7 @@ async def generate_followup(
     question_depth: str,
     candidate_answer: str | None = None,
     pinned_question: str | None = None,
+    suggested_questions: list[str] | None = None,
 ) -> tuple[str, dict | None]:
     """
     Generate the persona's next question/challenge, grounded in the graph.
@@ -242,6 +243,10 @@ async def generate_followup(
     vague suggestion the model is free to ignore. The scenario slot is
     always None for a pinned question, since role-play framing wasn't
     part of what the interviewer picked.
+
+    `suggested_questions`, when provided, supplies a list of candidate
+    questions for this persona/topic so the AI interviewer can ask on a
+    suggestion basis (verbatim or adapted to flow naturally).
     """
     if pinned_question:
         return pinned_question, None
@@ -258,6 +263,18 @@ async def generate_followup(
         if candidate_answer
         else ""
     )
+
+    suggestion_block = ""
+    if suggested_questions:
+        cleaned_suggestions = [q.strip() for q in suggested_questions if q.strip()]
+        if cleaned_suggestions:
+            bullets = "\n".join(f"- {q}" for q in cleaned_suggestions)
+            suggestion_block = (
+                f"\nSuggested questions grounded in the context:\n{bullets}\n"
+                "If appropriate for the candidate's last answer, you may ask one of these "
+                "suggested questions (either verbatim or adapted naturally), or formulate a "
+                "follow-up on the basis of these suggestions.\n"
+            )
 
     if stuck:
         reaction_instruction = (
@@ -308,7 +325,8 @@ async def generate_followup(
                     f"Target question depth: {question_depth}\n"
                     f"{candidate_block}"
                     f"Relevant claims from the shared context graph so far:\n"
-                    f"{context}\n\n"
+                    f"{context}\n"
+                    f"{suggestion_block}\n"
                     f"{reaction_instruction}\n\n"
                     "Respond as strict JSON:\n"
                     '{"spoken_text": "...", "scenario_title": "...", '

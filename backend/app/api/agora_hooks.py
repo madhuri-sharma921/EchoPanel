@@ -150,6 +150,11 @@ async def handle_turn(
     # set, and generate_followup()'s pinned_question param for why this
     # bypasses the LLM entirely rather than treating it as a suggestion.
     pinned = session.pending_question_text
+    unused_suggestions = [
+        entry.text
+        for entry in session.script
+        if not entry.used and (entry.persona is None or entry.persona == winner.persona)
+    ]
     spoken_text, scenario = await generate_followup(
         role=winner.persona,
         graph=graph,
@@ -157,9 +162,15 @@ async def handle_turn(
         question_depth=competence.next_depth.value,
         candidate_answer=payload.candidate_text,
         pinned_question=pinned,
+        suggested_questions=unused_suggestions,
     )
     if pinned:
         session.pending_question_text = None
+    else:
+        for entry in session.script:
+            if not entry.used and (entry.text.strip().lower() in spoken_text.lower() or spoken_text.strip().lower() in entry.text.lower()):
+                entry.used = True
+                break
     if scenario is not None:
         session.latest_scenario = ScenarioCard(**scenario)
 

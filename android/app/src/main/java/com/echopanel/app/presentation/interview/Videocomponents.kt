@@ -83,30 +83,17 @@ fun CandidateCameraTile(
     val context = LocalContext.current
     val videoGeneration by agoraCallRepository.observeLocalVideoGeneration().collectAsState()
     val videoEnabled by agoraCallRepository.observeLocalVideoEnabled().collectAsState()
-    // Keyed on callState, videoGeneration, AND videoEnabled: callState
-    // covers the normal connect/reconnect case, videoGeneration covers a
-    // mid-call camera failure-and-restart (see
-    // AgoraCallRepositoryImpl.restartLocalVideo()), and videoEnabled
-    // covers the candidate explicitly toggling their camera back on,
-    // which also needs a fresh SurfaceView bound to the newly-restarted
-    // capturer rather than reusing whatever was there before it was
-    // turned off.
-    var surfaceView by remember(callState, videoGeneration, videoEnabled) { mutableStateOf<SurfaceView?>(null) }
-    var attempted by remember(callState, videoGeneration, videoEnabled) { mutableStateOf(0) }
+    // Keyed on callState and videoEnabled: retains the last valid SurfaceView
+    // during transient retries rather than tearing it down and causing the tile
+    // to blink/flicker on every generation bump.
+    var surfaceView by remember(callState, videoEnabled) { mutableStateOf<SurfaceView?>(null) }
+    var attempted by remember(callState, videoEnabled) { mutableStateOf(0) }
 
     LaunchedEffect(callState, videoGeneration, videoEnabled) {
         if (callState != CallState.Connected || !videoEnabled) {
             surfaceView = null
             return@LaunchedEffect
         }
-        // Retry a handful of times with backoff — covers the real-world
-        // race where the engine finishes joining (or restarting its
-        // camera) a moment after this composable recomposes.
-        // createLocalVideoView() itself returns null immediately (no
-        // retry benefit) if camera permission is absent or the candidate
-        // has toggled video off, so this loop naturally exits fast in
-        // those cases rather than waiting out the full backoff for
-        // nothing.
         var view: SurfaceView? = null
         var tries = 0
         while (view == null && tries < 8) {
@@ -114,10 +101,12 @@ fun CandidateCameraTile(
             if (view == null) {
                 tries++
                 attempted = tries
-                delay(300L * tries) // 300ms, 600ms, 900ms... backoff
+                delay(200L * tries) // gentle backoff
             }
         }
-        surfaceView = view
+        if (view != null) {
+            surfaceView = view
+        }
     }
 
     Box(
@@ -149,23 +138,13 @@ fun CandidateCameraTile(
                     )
                 }
                 view != null -> {
-                    // FIX (strobing/flashing camera tile): update = {}
-                    // previously called rebindLocalVideo() on EVERY
-                    // recomposition of this AndroidView — and this screen
-                    // recomposes every 2-3 seconds from routine transcript
-                    // / script / cheat-status polling, not just on real
-                    // surface-detach events. Calling Agora's
-                    // setupLocalVideo() that often visibly tears down and
-                    // re-establishes the render surface, which is exactly
-                    // what a repeating strobe looks like. Rebinding is
-                    // still needed for genuine surface-detach recovery,
-                    // but only once per actual SurfaceView instance, not
-                    // once per recomposition — tracked here with a
-                    // remember guard keyed on the view's own identity.
                     var lastBoundView by remember { mutableStateOf<SurfaceView?>(null) }
                     AndroidView(
-                        factory = { view },
+                        factory = {
+                            view.apply { setZOrderMediaOverlay(true) }
+                        },
                         update = { sv ->
+                            sv.setZOrderMediaOverlay(true)
                             if (lastBoundView !== sv) {
                                 agoraCallRepository.rebindLocalVideo(sv)
                                 lastBoundView = sv

@@ -135,6 +135,11 @@ async def chat_completions_bridge(session_id: UUID, request: Request) -> dict:
     # interviewer marked one to ask next — same mechanism as
     # api/agora_hooks.py, see generate_followup()'s pinned_question param.
     pinned = session.pending_question_text
+    unused_suggestions = [
+        entry.text
+        for entry in session.script
+        if not entry.used and (entry.persona is None or entry.persona == winner.persona)
+    ]
     spoken_text, scenario = await generate_followup(
         role=winner.persona,
         graph=graph,
@@ -142,9 +147,15 @@ async def chat_completions_bridge(session_id: UUID, request: Request) -> dict:
         question_depth=competence.next_depth.value,
         candidate_answer=candidate_text,
         pinned_question=pinned,
+        suggested_questions=unused_suggestions,
     )
     if pinned:
         session.pending_question_text = None
+    else:
+        for entry in session.script:
+            if not entry.used and (entry.text.strip().lower() in spoken_text.lower() or spoken_text.strip().lower() in entry.text.lower()):
+                entry.used = True
+                break
     if scenario is not None:
         session.latest_scenario = ScenarioCard(**scenario)
 

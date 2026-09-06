@@ -33,22 +33,29 @@ class FaceProctoringAnalyzer(private val context: Context) {
     private val detector = FaceDetection.getClient(
         FaceDetectorOptions.Builder()
             .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
-            .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_NONE)
+            .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
             .build()
     )
 
-
+    // Sustained-state tracking calibrated so a natural eye blink (100-200ms)
+    // or micro-glance does NOT fire false cheating alerts — we only report
+    // once a condition holds for sustained frames (roughly 1.5s).
     private var consecutiveNoFace = 0
     private var consecutiveMultiFace = 0
     private var consecutiveGazeOff = 0
-    private val sustainedFrameThreshold = 3
-
+    private val sustainedFrameThreshold = 15
+    private val multiFaceFrameThreshold = 10
 
     @SuppressLint("UnsafeOptInUsageError")
     fun observe(lifecycleOwner: LifecycleOwner): Flow<ObservedSignal> = callbackFlow {
         val providerFuture = ProcessCameraProvider.getInstance(context)
         providerFuture.addListener({
-            val provider = providerFuture.get()
+            val provider = try {
+                providerFuture.get()
+            } catch (_: Exception) {
+                close()
+                return@addListener
+            }
             cameraProvider = provider
 
             val analysis = ImageAnalysis.Builder()
@@ -66,16 +73,18 @@ class FaceProctoringAnalyzer(private val context: Context) {
                     CameraSelector.DEFAULT_FRONT_CAMERA,
                     analysis,
                 )
-            } catch (_ : Exception) {
-
+            } catch (_: Exception) {
+                // Camera unavailable or in use by another pipeline — degrade gracefully
                 close()
             }
         }, androidx.core.content.ContextCompat.getMainExecutor(context))
 
         awaitClose {
-            cameraProvider?.unbindAll()
-            detector.close()
-            analysisExecutor.shutdown()
+            try {
+                cameraProvider?.unbindAll()
+                detector.close()
+                analysisExecutor.shutdown()
+            } catch (_: Exception) {}
         }
     }.distinctUntilChanged { old, new -> old.type == new.type }
 
@@ -94,6 +103,8 @@ class FaceProctoringAnalyzer(private val context: Context) {
                         consecutiveNoFace++
                         consecutiveMultiFace = 0
                         consecutiveGazeOff = 0
+                        // Only report after genuinely sustained absence (~1.5s),
+                        // preventing false positives from transient blinks or lighting shifts
                         if (consecutiveNoFace == sustainedFrameThreshold) {
                             onSignal(
                                 ObservedSignal(
@@ -108,7 +119,7 @@ class FaceProctoringAnalyzer(private val context: Context) {
                         consecutiveMultiFace++
                         consecutiveNoFace = 0
                         consecutiveGazeOff = 0
-                        if (consecutiveMultiFace == sustainedFrameThreshold) {
+                        if (consecutiveMultiFace == multiFaceFrameThreshold) {
                             onSignal(
                                 ObservedSignal(
                                     ClientCheatSignalType.MULTIPLE_FACES,
@@ -122,12 +133,18 @@ class FaceProctoringAnalyzer(private val context: Context) {
                         consecutiveNoFace = 0
                         consecutiveMultiFace = 0
                         val face = faces[0]
-                        // Sustained large head-yaw is treated as "looking
-                        // away from the screen" — a coarse but genuinely
-                        // computed signal, not a stub. Threshold chosen so
-                        // normal glances don't fire, only a sustained turn.
+
+                        // Check eye-open probabilities: natural eye blinking (both eyes closed momentarily)
+                        // is healthy liveness evidence, not a cheating event or missing face
+                        val leftEyeOpen = face.leftEyeOpenProbability
+                        val rightEyeOpen = face.rightEyeOpenProbability
+                        val isBlinking = leftEyeOpen != null && rightEyeOpen != null &&
+                                leftEyeOpen < 0.25f && rightEyeOpen < 0.25f
+
                         val yaw = face.headEulerAngleY
-                        if (kotlin.math.abs(yaw) > 35f) {
+                        // If candidate is just blinking naturally with head facing camera,
+                        // do not increment gaze-off or no-face
+                        if (!isBlinking && kotlin.math.abs(yaw) > 35f) {
                             consecutiveGazeOff++
                             if (consecutiveGazeOff == sustainedFrameThreshold) {
                                 onSignal(

@@ -52,6 +52,8 @@ class AgoraCallRepositoryImpl @Inject constructor(
         const val CANDIDATE_RTC_UID = 1001
     }
 
+    private var lastRestartTime = 0L
+
     /**
      * Restarts local video capture from scratch — stop, disable, then
      * re-enable and start preview. This is the actual fix for "video
@@ -60,8 +62,15 @@ class AgoraCallRepositoryImpl @Inject constructor(
      * and rebound it to the SAME engine's SAME (already-dead) camera
      * capturer, which does nothing if the capturer itself stopped
      * producing frames. This function restarts the capturer itself.
+     * Rate-limited to prevent rapid restart loops that cause video blinking.
      */
     private fun restartLocalVideo() {
+        val now = System.currentTimeMillis()
+        if (now - lastRestartTime < 3000L) {
+            // Debounce rapid successive errors to avoid restart blinking storms
+            return
+        }
+        lastRestartTime = now
         val engine = rtcEngine ?: return
         val hasCameraPermission = ContextCompat.checkSelfPermission(
             appContext, Manifest.permission.CAMERA,
@@ -219,7 +228,9 @@ class AgoraCallRepositoryImpl @Inject constructor(
             appContext, Manifest.permission.CAMERA,
         ) == PackageManager.PERMISSION_GRANTED
         if (!hasCameraPermission) return null
-        val surfaceView = SurfaceView(context)
+        val surfaceView = SurfaceView(context).apply {
+            setZOrderMediaOverlay(true)
+        }
         engine.setupLocalVideo(
             VideoCanvas(surfaceView, VideoCanvas.RENDER_MODE_HIDDEN, 0)
         )

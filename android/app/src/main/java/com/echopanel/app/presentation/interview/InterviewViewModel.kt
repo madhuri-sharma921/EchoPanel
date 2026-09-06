@@ -270,7 +270,7 @@ class InterviewViewModel @Inject constructor(
         viewModelScope.launch {
             while (_uiState.value.callState == CallState.Connected) {
                 getProctoringStatus(sessionId).onSuccess { alerts ->
-                    if (alerts.size != _uiState.value.cheatAlerts.size) {
+                    if (alerts != _uiState.value.cheatAlerts) {
                         _uiState.update { it.copy(cheatAlerts = alerts) }
                     }
                 }
@@ -284,7 +284,7 @@ class InterviewViewModel @Inject constructor(
         viewModelScope.launch {
             while (_uiState.value.callState == CallState.Connected) {
                 getScript(sessionId).onSuccess { entries ->
-                    if (entries.size != _uiState.value.script.size) {
+                    if (entries != _uiState.value.script) {
                         _uiState.update { it.copy(script = entries) }
                     }
                 }
