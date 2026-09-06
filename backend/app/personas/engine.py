@@ -214,6 +214,7 @@ async def generate_followup(
     topic_hint: str | None,
     question_depth: str,
     candidate_answer: str | None = None,
+    pinned_question: str | None = None,
 ) -> tuple[str, dict | None]:
     """
     Generate the persona's next question/challenge, grounded in the graph.
@@ -230,7 +231,21 @@ async def generate_followup(
     the model when the candidate looks stuck — is what lets the persona
     react to "I don't know, tell me" with a hint or a simpler restatement
     instead of barrelling ahead with an unrelated new scenario every turn.
+
+    `pinned_question`, when set, comes from the shared script panel: the
+    human interviewer picked an AI-suggested question or typed their own
+    and explicitly marked it as the one to ask next (see
+    api/script.py's mark_used and InterviewSession.pending_question_text).
+    When set, this function asks EXACTLY that text — no LLM call, no
+    rephrasing — because the whole point of the script panel is that the
+    interviewer's chosen question actually gets asked, not treated as a
+    vague suggestion the model is free to ignore. The scenario slot is
+    always None for a pinned question, since role-play framing wasn't
+    part of what the interviewer picked.
     """
+    if pinned_question:
+        return pinned_question, None
+
     settings = get_settings()
     client = _client()
     persona = PERSONA_DEFINITIONS[role]

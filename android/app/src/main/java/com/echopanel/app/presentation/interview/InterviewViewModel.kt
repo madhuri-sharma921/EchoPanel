@@ -54,6 +54,11 @@ data class InterviewUiState(
     // the human interviewer has typed in — both visible to both sides.
     val script: List<ScriptEntry> = emptyList(),
     val isSuggestingQuestions: Boolean = false,
+    // Brief confirmation text shown after pinning a script question (e.g.
+    // "Pinned — will be asked next"), so choosing a question in the panel
+    // visibly does something rather than just greying out silently. The
+    // screen clears this a couple seconds after it appears.
+    val pinConfirmation: String? = null,
 )
 
 @HiltViewModel
@@ -70,7 +75,7 @@ class InterviewViewModel @Inject constructor(
     private val suggestScriptQuestions: SuggestScriptQuestionsUseCase,
     private val addCustomScriptQuestion: AddCustomScriptQuestionUseCase,
     private val markScriptEntryUsed: MarkScriptEntryUsedUseCase,
-    private val agoraCallRepository: AgoraCallRepository,
+    val agoraCallRepository: AgoraCallRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(InterviewUiState())
@@ -316,13 +321,22 @@ class InterviewViewModel @Inject constructor(
         val sessionId = _uiState.value.sessionId ?: return
         viewModelScope.launch {
             markScriptEntryUsed(sessionId, entryId)
+            val pickedText = _uiState.value.script.firstOrNull { it.id == entryId }?.text
             _uiState.update { state ->
                 state.copy(
                     script = state.script.map {
                         if (it.id == entryId) it.copy(used = true) else it
                     },
+                    // Confirms to the interviewer that this pick is now
+                    // pinned as the backend's forced next question (see
+                    // ScriptEntry.used -> InterviewSession.pending_question_text
+                    // -> generate_followup(pinned_question=...) on the
+                    // backend) — not just a UI checkbox with no effect.
+                    pinConfirmation = pickedText?.let { "Pinned — will be asked next: \u201c${it.take(60)}\u201d" },
                 )
             }
+            delay(3000)
+            _uiState.update { it.copy(pinConfirmation = null) }
         }
     }
 
@@ -366,6 +380,21 @@ class InterviewViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    /**
+     * Fire-and-forget call teardown, safe to call from a Composable's
+     * onDispose (which cannot be suspend). This exists ALONGSIDE
+     * onCleared() rather than replacing it — onCleared() still fires
+     * when the ViewModel is genuinely destroyed, but this is the more
+     * reliable trigger for "the interview screen left composition",
+     * which can happen well before the ViewModel itself is cleared if
+     * it's scoped to a longer-lived navigation back-stack entry. Calling
+     * leaveCall() twice is harmless — it's idempotent (rtcEngine is set
+     * to null after the first call, so a second call is a no-op).
+     */
+    fun leaveCallImmediately() {
+        viewModelScope.launch { agoraCallRepository.leaveCall() }
     }
 
     override fun onCleared() {

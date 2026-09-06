@@ -1,6 +1,5 @@
 package com.echopanel.app.presentation.interview
 
-
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -32,6 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -120,17 +120,14 @@ fun ScriptPanel(
         shape = RoundedCornerShape(16.dp),
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
+            // "Shared script" heading intentionally removed — the
+            // Suggest button and the entries below make the panel's
+            // purpose obvious without a redundant label taking up space.
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    "Shared script",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold,
-                )
                 TextButton(onClick = onRequestSuggestions, enabled = !isSuggesting) {
                     if (isSuggesting) {
                         CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
@@ -171,8 +168,28 @@ fun ScriptPanel(
                     value = draft,
                     onValueChange = { draft = it },
                     modifier = Modifier.weight(1f),
-                    placeholder = { Text("Type your own question…") },
+                    placeholder = {
+                        Text(
+                            "Type your own question…",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    },
                     singleLine = true,
+                    // Explicit colors — this field sits on a translucent
+                    // surfaceVariant card over a gradient background, and
+                    // without pinning these, both the typed text and the
+                    // border can land on a near-invisible low-contrast
+                    // combination (this is exactly what showed up as a
+                    // seemingly-empty box with unreadable input).
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        cursorColor = MaterialTheme.colorScheme.primary,
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                        focusedContainerColor = MaterialTheme.colorScheme.surface,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                    ),
                 )
                 Spacer(Modifier.size(8.dp))
                 IconButton(

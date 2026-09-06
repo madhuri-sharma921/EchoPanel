@@ -103,6 +103,12 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:1.3.4")
     implementation("com.google.mlkit:face-detection:16.1.7")
 
+    // Lottie — renders the AI interviewer's "dummy video" avatar as a
+    // looping vector animation (idle / speaking states) instead of a real
+    // remote video track, since the AI panel has no camera of its own.
+    // Far lighter than shipping an actual video file for this.
+    implementation("com.airbnb.android:lottie-compose:6.4.0")
+
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
     testImplementation("app.cash.turbine:turbine:1.1.0")

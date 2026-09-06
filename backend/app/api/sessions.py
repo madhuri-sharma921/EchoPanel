@@ -123,20 +123,30 @@ def start_session_agent(
         )
 
     # Line 86 fix: safely update whether the model is frozen, typed, or standard
-    # Also seed pending_question_text with the opening greeting so the
+    # Also seed last_asked_question_text with the opening greeting so the
     # candidate's first answer gets logged against the question they
     # actually heard, instead of the llm_bridge's generic fallback.
+    #
+    # FIX: this used to seed pending_question_text instead, which is the
+    # SAME field mark_used() uses for a genuine human-picked pin from the
+    # script panel (see schemas.InterviewSession.pending_question_text
+    # and llm_bridge.py). Seeding it here meant llm_bridge's very first
+    # call after the greeting saw a "pinned" question and short-circuited
+    # straight back to repeating the greeting verbatim instead of
+    # generating a real first follow-up — and every turn after that kept
+    # the same repeat-the-last-question loop going (see
+    # last_asked_question_text's docstring for the full chain).
     if hasattr(session, "model_copy"):
         session = session.model_copy(
-            update={"agora_agent_id": str(agent_id), "pending_question_text": greeting}
+            update={"agora_agent_id": str(agent_id), "last_asked_question_text": greeting}
         )
     elif hasattr(session, "copy"):
         session = session.copy(
-            update={"agora_agent_id": str(agent_id), "pending_question_text": greeting}
+            update={"agora_agent_id": str(agent_id), "last_asked_question_text": greeting}
         )
     else:
         session.agora_agent_id = str(agent_id)
-        session.pending_question_text = greeting
+        session.last_asked_question_text = greeting
 
     if hasattr(store, "update_session"):
         store.update_session(session)

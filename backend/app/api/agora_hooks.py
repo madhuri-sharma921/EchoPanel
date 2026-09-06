@@ -142,14 +142,24 @@ async def handle_turn(
     )
     winner = pick_next_persona(scores)
 
-    # 5. Generate that persona's grounded follow-up via the LLM.
+    # 5. Generate that persona's grounded follow-up via the LLM — unless
+    # the human interviewer has pinned a specific question from the
+    # shared script panel (session.pending_question_text), in which case
+    # that exact text is used verbatim and the pin is consumed so it only
+    # fires once. See ScriptEntry.used in api/script.py for how a pin is
+    # set, and generate_followup()'s pinned_question param for why this
+    # bypasses the LLM entirely rather than treating it as a suggestion.
+    pinned = session.pending_question_text
     spoken_text, scenario = await generate_followup(
         role=winner.persona,
         graph=graph,
         topic_hint=claim.topic,
         question_depth=competence.next_depth.value,
         candidate_answer=payload.candidate_text,
+        pinned_question=pinned,
     )
+    if pinned:
+        session.pending_question_text = None
     if scenario is not None:
         session.latest_scenario = ScenarioCard(**scenario)
 

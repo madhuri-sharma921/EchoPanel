@@ -37,23 +37,13 @@ class FaceProctoringAnalyzer(private val context: Context) {
             .build()
     )
 
-    // Sustained-state tracking so a single blinked frame doesn't fire a
-    // signal — we only report once a condition holds for several
-    // consecutive analyzed frames (roughly 1.5s at the ~2fps analysis
-    // rate below), which is what "sustained gaze-off" or "no face" means
-    // in the CheatSignalType vocabulary.
+
     private var consecutiveNoFace = 0
     private var consecutiveMultiFace = 0
     private var consecutiveGazeOff = 0
     private val sustainedFrameThreshold = 3
 
-    /**
-     * Emits an [ObservedSignal] each time a sustained condition is newly
-     * detected. Consumers (the ViewModel or a dedicated collector) forward
-     * these to ReportCheatSignalUseCase. Uses callbackFlow so camera
-     * teardown (unbinding, closing the detector) happens deterministically
-     * on flow cancellation via awaitClose.
-     */
+
     @SuppressLint("UnsafeOptInUsageError")
     fun observe(lifecycleOwner: LifecycleOwner): Flow<ObservedSignal> = callbackFlow {
         val providerFuture = ProcessCameraProvider.getInstance(context)
@@ -77,9 +67,7 @@ class FaceProctoringAnalyzer(private val context: Context) {
                     analysis,
                 )
             } catch (_ : Exception) {
-                // Camera unavailable (emulator without a front camera, or
-                // permission not yet granted) — proctoring degrades to
-                // audio/text signals only rather than crashing the call.
+
                 close()
             }
         }, androidx.core.content.ContextCompat.getMainExecutor(context))

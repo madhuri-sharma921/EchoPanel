@@ -207,10 +207,32 @@ class InterviewSession(BaseModel):
     last_speaking_persona: Optional[PersonaRole] = None
     latest_scenario: Optional[ScenarioCard] = None
     turn_log: list[TurnLogEntry] = Field(default_factory=list)
-    # The most recent follow-up spoken to the candidate but not yet
-    # answered — paired with their next answer to form the next
-    # TurnLogEntry (see llm_bridge.chat_completions_bridge).
+    # Set ONLY by api/script.py's mark_used, when the human interviewer
+    # picks an AI-suggested (or their own typed) question from the shared
+    # script panel and commits to asking it next. generate_followup()
+    # consumes and clears this on the very next turn (see agora_hooks.py
+    # and llm_bridge.py) so it fires exactly once per pin. Do NOT reuse
+    # this field for anything else — see last_asked_question_text below
+    # for why that used to happen and broke the whole mechanism.
     pending_question_text: Optional[str] = None
+    # The most recent follow-up actually spoken to the candidate but not
+    # yet answered — paired with their next answer to form the next
+    # TurnLogEntry (see llm_bridge.chat_completions_bridge).
+    #
+    # FIX (interviewer stuck repeating itself / suggestions ignored):
+    # this bookkeeping used to be stored in pending_question_text too,
+    # which is ALSO the field mark_used() pins a script-panel choice into.
+    # Since llm_bridge overwrote pending_question_text with the
+    # just-spoken question at the end of every turn, the very next turn
+    # would read that leftover value back as if the interviewer had
+    # pinned it, short-circuit generate_followup() past the LLM, and
+    # re-ask the exact same question verbatim — forever, regardless of
+    # the Context Graph, the turn arbiter, or any real suggestion the
+    # interviewer picked from the script panel. A real pin from
+    # mark_used() only ever survived one turn before being clobbered by
+    # this same reuse. Separating the two fields lets pending_question_text
+    # be exclusively "a human's real pin" again.
+    last_asked_question_text: Optional[str] = None
     # Proctoring / integrity state (see services/cheating_detector.py).
     cheat_signals: list[CheatSignal] = Field(default_factory=list)
     cheat_flags: list[CheatFlag] = Field(default_factory=list)

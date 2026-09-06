@@ -107,4 +107,55 @@ interface AgoraCallRepository {
 
 
     suspend fun interruptAgent(): Result<Unit>
+
+    /**
+     * Creates a SurfaceView bound to the candidate's OWN camera feed (the
+     * real interviewee video) via Agora's local video renderer. Returns
+     * null if the engine isn't joined yet or video couldn't be enabled
+     * (e.g. no camera permission) — callers should treat null as "no
+     * video tile to show" rather than an error.
+     */
+    fun createLocalVideoView(context: android.content.Context): android.view.SurfaceView?
+
+    /**
+     * Re-confirms the local video binding on an existing SurfaceView.
+     * Call this from an AndroidView's `update` block (not just `factory`)
+     * — Agora's renderer can silently stop drawing to a SurfaceView that
+     * was detached and reattached (e.g. during recomposition), and this
+     * is the fix for that "video looks frozen" failure mode. Safe to call
+     * repeatedly; a no-op if the engine isn't up.
+     */
+    fun rebindLocalVideo(surfaceView: android.view.SurfaceView)
+
+    /**
+     * Emits a new value every time the local camera capture pipeline is
+     * restarted after detecting a mid-call failure (see
+     * AgoraCallRepositoryImpl's onLocalVideoStateChanged /
+     * ERR_INVALID_STATE handling). UI observing this should fetch a
+     * fresh SurfaceView when it changes — a camera that died and was
+     * restarted needs a fresh setupLocalVideo() call, not just the same
+     * stale surface rebound to a still-broken capturer.
+     */
+    fun observeLocalVideoGeneration(): kotlinx.coroutines.flow.StateFlow<Int>
+
+    /**
+     * Candidate-controlled camera on/off — separate from permission or
+     * hardware availability. When turned off, the local camera stops
+     * capturing and publishing (muteLocalVideoStream + stopPreview), and
+     * the candidate's own tile should fall back to the initials
+     * placeholder, same as if the camera were unavailable. Turning it
+     * back on re-enables capture and publishing without needing to
+     * rejoin the call. Safe to call before joinCall() has completed —
+     * a no-op if the engine isn't up yet, the same way the other video
+     * methods degrade.
+     */
+    fun setLocalVideoEnabled(enabled: Boolean)
+
+    /**
+     * Whether the candidate has turned their own camera off via
+     * [setLocalVideoEnabled] — distinct from whether video is available
+     * at all (permission/hardware). Defaults to true (camera on) unless
+     * the candidate has explicitly turned it off.
+     */
+    fun observeLocalVideoEnabled(): kotlinx.coroutines.flow.StateFlow<Boolean>
 }

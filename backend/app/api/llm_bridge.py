@@ -131,13 +131,20 @@ async def chat_completions_bridge(session_id: UUID, request: Request) -> dict:
     winner = pick_next_persona(scores)
     session.last_speaking_persona = winner.persona
 
+    # Honor a pinned question from the shared script panel, if the human
+    # interviewer marked one to ask next — same mechanism as
+    # api/agora_hooks.py, see generate_followup()'s pinned_question param.
+    pinned = session.pending_question_text
     spoken_text, scenario = await generate_followup(
         role=winner.persona,
         graph=graph,
         topic_hint=claim.topic,
         question_depth=competence.next_depth.value,
         candidate_answer=candidate_text,
+        pinned_question=pinned,
     )
+    if pinned:
+        session.pending_question_text = None
     if scenario is not None:
         session.latest_scenario = ScenarioCard(**scenario)
 
@@ -149,7 +156,14 @@ async def chat_completions_bridge(session_id: UUID, request: Request) -> dict:
     # Android app polls via GET /sessions/{id}/turns to render the live
     # transcript + reaction emoji — the ClaimNode graph alone doesn't
     # retain the literal question text a persona asked.
-    pending_question = session.pending_question_text or (
+    #
+    # This uses last_asked_question_text, NOT pending_question_text —
+    # the latter is reserved exclusively for a human-picked pin from the
+    # script panel (see schemas.InterviewSession.pending_question_text).
+    # Storing this turn's bookkeeping there too used to make every pin
+    # look permanent, since it got reread as "pinned" on the very next
+    # turn and short-circuited generate_followup() forever.
+    pending_question = session.last_asked_question_text or (
         "Tell me a bit about a recent project you've worked on."
     )
     session.turn_log.append(
@@ -167,7 +181,7 @@ async def chat_completions_bridge(session_id: UUID, request: Request) -> dict:
             transcript_timestamp_ms=int(time.time() * 1000),
         )
     )
-    session.pending_question_text = spoken_text
+    session.last_asked_question_text = spoken_text
 
     if body.get("stream"):
         return _streaming_response(session_id, spoken_text)
