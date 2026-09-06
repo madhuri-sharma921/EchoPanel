@@ -54,32 +54,7 @@ class AgoraCallRepositoryImpl @Inject constructor(
 
     private var lastRestartTime = 0L
 
-    /**
-     * Restarts local video capture from scratch — stop, disable, then
-     * re-enable and start preview. This is the actual fix for "video
-     * works for a while then freezes mid-call and stays frozen even on
-     * reopen": reopening the screen only ever created a new SurfaceView
-     * and rebound it to the SAME engine's SAME (already-dead) camera
-     * capturer, which does nothing if the capturer itself stopped
-     * producing frames. This function restarts the capturer itself.
-     * Rate-limited to prevent rapid restart loops that cause video blinking.
-     */
     private fun restartLocalVideo() {
-        val now = System.currentTimeMillis()
-        if (now - lastRestartTime < 3000L) {
-            // Debounce rapid successive errors to avoid restart blinking storms
-            return
-        }
-        lastRestartTime = now
-        val engine = rtcEngine ?: return
-        val hasCameraPermission = ContextCompat.checkSelfPermission(
-            appContext, Manifest.permission.CAMERA,
-        ) == PackageManager.PERMISSION_GRANTED
-        if (!hasCameraPermission) return
-        engine.stopPreview()
-        engine.enableLocalVideo(false)
-        engine.enableLocalVideo(true)
-        engine.startPreview()
         _localVideoGeneration.value += 1
     }
 
@@ -96,28 +71,43 @@ class AgoraCallRepositoryImpl @Inject constructor(
             RtcEngine.destroy()
             rtcEngine = null
         }
+        agentStateEvents.tryEmit(AgentActivityState.UNKNOWN)
 
         val rtcConfig = RtcEngineConfig().apply {
             mContext = appContext
             mAppId = BuildConfig.AGORA_APP_ID
             mEventHandler = object : IRtcEngineEventHandler() {
                 override fun onJoinChannelSuccess(channel: String?, uid: Int, elapsed: Int) {
-                    // Successfully joined channel with CANDIDATE_RTC_UID
-                    // Your ViewModel / Session flow should now call /sessions/{id}/agent/start
+                    // Candidate joined Agora channel successfully
+                    agentStateEvents.tryEmit(AgentActivityState.LISTENING)
                 }
 
                 override fun onError(err: Int) {
-                    // Handle Agora errors. Camera-capture recovery is
-                    // handled via the more specific, documented
-                    // onLocalVideoStateChanged callback below (state ==
-                    // LOCAL_VIDEO_STREAM_STATE_FAILED) rather than here —
-                    // that's Agora's purpose-built signal for exactly
-                    // this failure, so this generic error callback
-                    // doesn't need its own guess at a matching error code.
                 }
 
                 override fun onUserJoined(uid: Int, elapsed: Int) {
-                    // Remote entity (Agent with UID 9999) joined
+                    // Remote agent joined channel
+                    agentStateEvents.tryEmit(AgentActivityState.LISTENING)
+                }
+
+                override fun onRemoteAudioStateChanged(uid: Int, state: Int, reason: Int, elapsed: Int) {
+                    when (state) {
+                        Constants.REMOTE_AUDIO_STATE_DECODING, Constants.REMOTE_AUDIO_STATE_STARTING -> {
+                            agentStateEvents.tryEmit(AgentActivityState.SPEAKING)
+                        }
+                        Constants.REMOTE_AUDIO_STATE_STOPPED, Constants.REMOTE_AUDIO_STATE_FROZEN -> {
+                            agentStateEvents.tryEmit(AgentActivityState.LISTENING)
+                        }
+                    }
+                }
+
+                override fun onAudioVolumeIndication(speakers: Array<out AudioVolumeInfo>?, totalVolume: Int) {
+                    val remoteSpeaker = speakers?.firstOrNull { it.uid != CANDIDATE_RTC_UID && it.uid != 0 }
+                    if (remoteSpeaker != null && remoteSpeaker.volume > 5) {
+                        agentStateEvents.tryEmit(AgentActivityState.SPEAKING)
+                    } else if (agentStateEvents.replayCache.lastOrNull() == AgentActivityState.SPEAKING) {
+                        agentStateEvents.tryEmit(AgentActivityState.LISTENING)
+                    }
                 }
 
                 override fun onLocalVideoStateChanged(
@@ -125,20 +115,6 @@ class AgoraCallRepositoryImpl @Inject constructor(
                     state: Int,
                     error: Int,
                 ) {
-                    // LOCAL_VIDEO_STREAM_STATE_FAILED is documented by
-                    // Agora as raw int value 3 (see Constants class docs)
-                    // — the SDK's own onLocalVideoStateChanged signature
-                    // takes plain Int state/reason codes, not enum types.
-                    // Using the literal directly (with the named constant
-                    // as a fallback reference in the comment) avoids
-                    // depending on a specific constant name that can
-                    // differ slightly across SDK versions/artifacts.
-                    // This is Agora's explicit, documented "the camera
-                    // stopped producing frames" signal — exactly the
-                    // trigger for the reported symptom (video freezes
-                    // mid-call, stays frozen even after leaving and
-                    // reopening the screen, because nothing was
-                    // restarting the actual capturer before this fix).
                     val LOCAL_VIDEO_STREAM_STATE_FAILED = 3
                     if (state == LOCAL_VIDEO_STREAM_STATE_FAILED) {
                         restartLocalVideo()
@@ -149,33 +125,15 @@ class AgoraCallRepositoryImpl @Inject constructor(
 
         val engine = RtcEngine.create(rtcConfig).apply {
             enableAudio()
+            enableAudioVolumeIndication(200, 3, true)
             setAudioProfile(
                 Constants.AUDIO_PROFILE_SPEECH_STANDARD,
                 Constants.AUDIO_SCENARIO_GAME_STREAMING
             )
-            // Video for the candidate's own camera tile. The AI panel has no
-            // real camera feed of its own — its "video" is a local placeholder
-            // animation rendered client-side (see AiInterviewerAvatarView),
-            // not a remote Agora video track — so we only need to publish and
-            // preview the LOCAL camera here, never subscribe to remote video.
-            //
-            // Explicit permission check here, not just at the UI layer: this
-            // is the fix for the candidate camera tile rendering as a solid
-            // black box. Agora's camera capturer fails SILENTLY without
-            // CAMERA permission — enableVideo()/startPreview() still
-            // "succeed", a surface gets bound, but zero frames ever arrive,
-            // which paints as solid black rather than any visible error.
-            // Skipping video setup entirely when permission is absent means
-            // the tile correctly falls back to the initials placeholder
-            // instead of a black box that looks broken.
-            val hasCameraPermission = ContextCompat.checkSelfPermission(
-                appContext, Manifest.permission.CAMERA,
-            ) == PackageManager.PERMISSION_GRANTED
-            if (hasCameraPermission) {
-                enableVideo()
-                enableLocalVideo(true)
-                startPreview()
-            }
+            // Disable Agora camera capture: the candidate video tile and MLKit
+            // face proctoring are managed via CameraX (PreviewView) with zero
+            // hardware contention, no black tiles, and no blinking.
+            enableLocalVideo(false)
             setChannelProfile(Constants.CHANNEL_PROFILE_LIVE_BROADCASTING)
             setClientRole(Constants.CLIENT_ROLE_BROADCASTER)
             muteLocalAudioStream(false) // Guarantee local mic is unmuted
@@ -186,9 +144,9 @@ class AgoraCallRepositoryImpl @Inject constructor(
             channelProfile = Constants.CHANNEL_PROFILE_LIVE_BROADCASTING
             clientRoleType = Constants.CLIENT_ROLE_BROADCASTER
             publishMicrophoneTrack = true // Explicitly publish candidate's mic
-            publishCameraTrack = true     // Publish candidate's camera (interviewer-side viewing, or a future two-way build)
+            publishCameraTrack = false    // Camera handled directly by CameraX
             autoSubscribeAudio = true     // Hear the agent's voice
-            autoSubscribeVideo = false    // Nothing remote publishes video today — the agent has no camera
+            autoSubscribeVideo = false    // Nothing remote publishes video
         }
 
         // Pass CANDIDATE_RTC_UID (1001) instead of 0
@@ -199,6 +157,7 @@ class AgoraCallRepositoryImpl @Inject constructor(
     }
 
     override suspend fun leaveCall() {
+        agentStateEvents.tryEmit(AgentActivityState.UNKNOWN)
         rtcEngine?.stopPreview()
         rtcEngine?.leaveChannel()
         RtcEngine.destroy()
@@ -213,71 +172,17 @@ class AgoraCallRepositoryImpl @Inject constructor(
         // If needed, you can mute local audio or send an interrupt signal
     }
 
-    /**
-     * Creates and binds a SurfaceView showing the candidate's OWN camera
-     * feed — this is the real interviewee video tile. Call once the engine
-     * exists (after joinCall() succeeds); returns null if the engine isn't
-     * up yet (e.g. camera permission was declined, so joinCall itself
-     * skipped video setup entirely — see enableVideo() call above, which
-     * fails silently and harmlessly if there's no camera hardware/permission).
-     */
-    override fun createLocalVideoView(context: Context): SurfaceView? {
-        val engine = rtcEngine ?: return null
-        if (!_localVideoEnabled.value) return null
-        val hasCameraPermission = ContextCompat.checkSelfPermission(
-            appContext, Manifest.permission.CAMERA,
-        ) == PackageManager.PERMISSION_GRANTED
-        if (!hasCameraPermission) return null
-        val surfaceView = SurfaceView(context).apply {
-            setZOrderMediaOverlay(true)
-        }
-        engine.setupLocalVideo(
-            VideoCanvas(surfaceView, VideoCanvas.RENDER_MODE_HIDDEN, 0)
-        )
-        return surfaceView
-    }
+    override fun createLocalVideoView(context: Context): SurfaceView? = null
 
     override fun rebindLocalVideo(surfaceView: SurfaceView) {
-        val engine = rtcEngine ?: return
-        // Re-issuing setupLocalVideo on the SAME SurfaceView re-establishes
-        // the renderer's internal surface handle. This is cheap and safe to
-        // call on every AndroidView update — it's what recovers a tile that
-        // would otherwise stay frozen after the underlying Surface was
-        // recreated by the platform (e.g. after the view left and rejoined
-        // the composition, or the window lost/regained focus).
-        engine.setupLocalVideo(
-            VideoCanvas(surfaceView, VideoCanvas.RENDER_MODE_HIDDEN, 0)
-        )
+        // No-op: video preview is rendered cleanly via CameraX PreviewView
     }
 
     override fun observeLocalVideoGeneration(): StateFlow<Int> = localVideoGeneration
 
     override fun setLocalVideoEnabled(enabled: Boolean) {
         _localVideoEnabled.value = enabled
-        val engine = rtcEngine ?: return
-        val hasCameraPermission = ContextCompat.checkSelfPermission(
-            appContext, Manifest.permission.CAMERA,
-        ) == PackageManager.PERMISSION_GRANTED
-        if (!hasCameraPermission) return
-        if (enabled) {
-            // Re-enabling: restart capture the same way restartLocalVideo()
-            // does, and bump the generation counter so the UI fetches a
-            // fresh SurfaceView bound to the freshly-started capturer —
-            // reusing an old surface here would hit the same "rebinding a
-            // dead pipeline" problem the mid-call-failure fix addressed.
-            engine.enableLocalVideo(true)
-            engine.startPreview()
-            engine.muteLocalVideoStream(false)
-            _localVideoGeneration.value += 1
-        } else {
-            // Turning off: mute the outgoing stream AND stop the capturer
-            // (not just muteLocalVideoStream alone) — this is a genuine
-            // "off", not a still-recording-but-not-sending state, which
-            // matters for a candidate who wants the camera light off.
-            engine.muteLocalVideoStream(true)
-            engine.stopPreview()
-            engine.enableLocalVideo(false)
-        }
+        _localVideoGeneration.value += 1
     }
 
     override fun observeLocalVideoEnabled(): StateFlow<Boolean> = localVideoEnabled

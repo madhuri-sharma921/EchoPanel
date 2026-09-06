@@ -44,4 +44,22 @@ def test_no_pin_falls_through_to_normal_path_signature():
 
     sig = inspect.signature(generate_followup)
     assert "pinned_question" in sig.parameters
+    assert "suggested_questions" in sig.parameters
     assert sig.parameters["pinned_question"].default is None
+
+
+def test_pinned_full_question_short_circuits():
+    graph = ContextGraph(session_id=uuid4())
+    pinned_text = "What happens when food orders surge during dinner rush?"
+    spoken_text, scenario = asyncio.run(
+        generate_followup(
+            role=PersonaRole.TECHNICAL,
+            graph=graph,
+            topic_hint="food",
+            question_depth="applied",
+            candidate_answer="Everything caches.",
+            pinned_question=pinned_text,
+        )
+    )
+    assert spoken_text == pinned_text
+    assert scenario is None

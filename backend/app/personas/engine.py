@@ -248,8 +248,8 @@ async def generate_followup(
     questions for this persona/topic so the AI interviewer can ask on a
     suggestion basis (verbatim or adapted to flow naturally).
     """
-    if pinned_question:
-        return pinned_question, None
+    if pinned_question and (pinned_question.strip().endswith("?") or len(pinned_question.strip().split()) >= 4):
+        return pinned_question.strip(), None
 
     settings = get_settings()
     client = _client()
@@ -264,16 +264,25 @@ async def generate_followup(
         else ""
     )
 
+    pinned_instruction = ""
+    if pinned_question:
+        pinned_instruction = (
+            f"\nHUMAN INTERVIEWER DIRECTIVE: The human interviewer explicitly wants you to "
+            f"ask a question regarding the topic/suggestion: '{pinned_question.strip()}'. "
+            f"Formulate a sharp, professional interview question exploring this topic "
+            f"(e.g. framing a relevant engineering or behavioral scenario around '{pinned_question.strip()}'). "
+            f"You MUST base this turn's question on this suggestion.\n"
+        )
+
     suggestion_block = ""
     if suggested_questions:
         cleaned_suggestions = [q.strip() for q in suggested_questions if q.strip()]
         if cleaned_suggestions:
             bullets = "\n".join(f"- {q}" for q in cleaned_suggestions)
             suggestion_block = (
-                f"\nSuggested questions grounded in the context:\n{bullets}\n"
-                "If appropriate for the candidate's last answer, you may ask one of these "
-                "suggested questions (either verbatim or adapted naturally), or formulate a "
-                "follow-up on the basis of these suggestions.\n"
+                f"\nSuggested questions grounded in context/topics:\n{bullets}\n"
+                "Prioritize asking one of these suggested questions (verbatim or adapted naturally), "
+                "or formulate a follow-up directly on the basis of these suggestions.\n"
             )
 
     if stuck:
@@ -290,28 +299,15 @@ async def generate_followup(
         )
     else:
         reaction_instruction = (
-            "First judge whether the candidate's literal last answer above "
-            "is actually a substantive attempt to answer the interview "
-            "question, or whether it's off-topic small talk / an aside "
-            "unrelated to the interview (e.g. mentioning they're hungry, "
-            "tired, need a break, asking about logistics, etc.).\n\n"
-            "If it is off-topic: do NOT build a scenario or technical "
-            "question out of the literal content of what they said. "
-            "Briefly and naturally acknowledge it in one short clause, "
-            "then steer back to the interview by re-asking or lightly "
-            "rephrasing the same question you asked before. Leave the "
-            "scenario fields as empty strings this turn.\n\n"
-            "If it IS a real attempt to answer: generate your next spoken "
-            "question or challenge, responding directly to what they just "
-            "said — don't ignore it or change subject arbitrarily. Keep it "
-            "to 1-2 sentences, natural spoken voice register (this will go "
-            "through TTS). Sometimes — not every turn, only when it would "
-            "genuinely sharpen the question — frame it as a short "
-            "role-play or scenario instead of a plain question (e.g. "
-            "'Picture this: a customer calls furious that...'). When you "
-            "do, also fill in the scenario fields below so it can be shown "
-            "visually. Leave them empty strings when this turn is just a "
-            "plain follow-up question."
+            "Analyze the candidate's last answer and context. If they bring up everyday topics, metaphors, "
+            "or asides (such as mentioning they're hungry, ordering food, need a break, or personal routines), "
+            "cleverly and naturally bridge it into an interview question or scenario relevant to your persona's "
+            "domain (e.g. if hungry or food is mentioned, you can ask about designing a high-concurrency food "
+            "delivery platform, handling peak lunch rush order dispatching, or workload balance). "
+            "Never rigidly dismiss their remarks or say 'let us refocus' without addressing it. "
+            "Keep the question to 1-2 sentences in a natural spoken voice register. "
+            "When suggested questions are listed above, actively ask one on a suggestion basis. "
+            "Frame it as a short role-play or scenario when it sharpens the question, and fill in the scenario fields."
         )
 
     response = await client.chat.completions.create(
@@ -327,6 +323,7 @@ async def generate_followup(
                     f"Relevant claims from the shared context graph so far:\n"
                     f"{context}\n"
                     f"{suggestion_block}\n"
+                    f"{pinned_instruction}\n"
                     f"{reaction_instruction}\n\n"
                     "Respond as strict JSON:\n"
                     '{"spoken_text": "...", "scenario_title": "...", '
@@ -388,6 +385,12 @@ async def generate_suggested_questions(
     persona = PERSONA_DEFINITIONS[role]
     context = _graph_context_for_prompt(graph, topic_hint)
 
+    topic_directive = (
+        f"You MUST generate suggested questions specifically exploring the topic/theme '{topic_hint}'. "
+        if topic_hint
+        else ""
+    )
+
     response = await client.chat.completions.create(
         model=settings.openai_model,
         messages=[
@@ -398,9 +401,9 @@ async def generate_suggested_questions(
                     f"Rubric: {persona.rubric}\n"
                     f"Relevant claims from the shared context graph so far:\n"
                     f"{context}\n\n"
+                    f"{topic_directive}"
                     f"Suggest {count} distinct candidate next-questions this "
-                    "persona could ask, grounded in the graph above (e.g. "
-                    "following up on an unchallenged or vague claim). Keep "
+                    "persona could ask, grounded in the graph or topic above. Keep "
                     "each under 2 sentences, natural spoken register. "
                     'Respond as strict JSON: {"questions": ["...", "..."]}'
                 ),

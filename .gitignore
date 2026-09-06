@@ -14,3 +14,4 @@ android/.idea/
 
 .DS_Store
 backend/.env.py
+backend/app/data/

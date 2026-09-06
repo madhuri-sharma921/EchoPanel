@@ -293,13 +293,13 @@ class InterviewViewModel @Inject constructor(
         }
     }
 
-    /** Asks the backend for fresh suggested questions grounded in the current Context Graph. */
-    fun onRequestSuggestedQuestions() {
+    /** Asks the backend for fresh suggested questions grounded in the current Context Graph and optional topic. */
+    fun onRequestSuggestedQuestions(topicHint: String = "") {
         val sessionId = _uiState.value.sessionId ?: return
         val persona = lastKnownPersona ?: return
         viewModelScope.launch {
             _uiState.update { it.copy(isSuggestingQuestions = true) }
-            suggestScriptQuestions(sessionId, persona)
+            suggestScriptQuestions(sessionId, persona, topicHint = topicHint.trim())
                 .onSuccess { entries -> _uiState.update { it.copy(script = entries) } }
                 .onFailure { error -> _uiState.update { it.copy(errorMessage = error.message) } }
             _uiState.update { it.copy(isSuggestingQuestions = false) }

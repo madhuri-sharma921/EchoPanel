@@ -1,6 +1,8 @@
 package com.echopanel.app.presentation.interview
 
 import android.view.SurfaceView
+import androidx.camera.view.PreviewView
+import com.echopanel.app.data.proctoring.FaceProctoringAnalyzer
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -79,35 +81,9 @@ fun CandidateCameraTile(
     candidateName: String,
     callState: CallState,
     modifier: Modifier = Modifier,
+    analyzer: FaceProctoringAnalyzer? = null,
 ) {
-    val context = LocalContext.current
-    val videoGeneration by agoraCallRepository.observeLocalVideoGeneration().collectAsState()
     val videoEnabled by agoraCallRepository.observeLocalVideoEnabled().collectAsState()
-    // Keyed on callState and videoEnabled: retains the last valid SurfaceView
-    // during transient retries rather than tearing it down and causing the tile
-    // to blink/flicker on every generation bump.
-    var surfaceView by remember(callState, videoEnabled) { mutableStateOf<SurfaceView?>(null) }
-    var attempted by remember(callState, videoEnabled) { mutableStateOf(0) }
-
-    LaunchedEffect(callState, videoGeneration, videoEnabled) {
-        if (callState != CallState.Connected || !videoEnabled) {
-            surfaceView = null
-            return@LaunchedEffect
-        }
-        var view: SurfaceView? = null
-        var tries = 0
-        while (view == null && tries < 8) {
-            view = agoraCallRepository.createLocalVideoView(context)
-            if (view == null) {
-                tries++
-                attempted = tries
-                delay(200L * tries) // gentle backoff
-            }
-        }
-        if (view != null) {
-            surfaceView = view
-        }
-    }
 
     Box(
         modifier = modifier
@@ -124,47 +100,36 @@ fun CandidateCameraTile(
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center,
         ) {
-            val view = surfaceView
             when {
                 !videoEnabled -> {
                     // Candidate turned their own camera off — a distinct,
                     // intentional state from "unavailable", shown with
-                    // the same initials fallback but the video-off icon
-                    // makes the reason obvious rather than looking broken.
+                    // the initials fallback and video-off icon.
                     Text(
                         text = candidateName.trim().take(1).uppercase().ifBlank { "?" },
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                view != null -> {
-                    androidx.compose.runtime.key(view) {
-                        var lastBoundView by remember(view) { mutableStateOf<SurfaceView?>(null) }
-                        AndroidView(
-                            factory = {
-                                view.apply { setZOrderMediaOverlay(true) }
-                            },
-                            update = { sv ->
-                                sv.setZOrderMediaOverlay(true)
-                                if (lastBoundView !== sv) {
-                                    agoraCallRepository.rebindLocalVideo(sv)
-                                    lastBoundView = sv
-                                }
-                            },
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
+                callState == CallState.Connected && analyzer != null -> {
+                    // Direct PreviewView rendering backed by CameraX — seamlessly
+                    // shares front camera hardware with FaceProctoringAnalyzer
+                    // with zero device contention, no black frames, and no blinking.
+                    AndroidView(
+                        factory = { ctx ->
+                            PreviewView(ctx).apply {
+                                scaleType = PreviewView.ScaleType.FILL_CENTER
+                                implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                                analyzer.bindPreviewView(this)
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                    )
                 }
-                callState == CallState.Connected && attempted < 8 -> {
-                    // Still retrying — show a small spinner instead of a
-                    // silent blank box, so it's visibly "loading" rather
-                    // than looking broken.
+                callState == CallState.Connected -> {
                     CircularProgressIndicator(modifier = Modifier.height(16.dp), strokeWidth = 2.dp)
                 }
                 else -> {
-                    // Genuinely unavailable (permission declined, no camera
-                    // hardware, or retries exhausted) — initials fallback so
-                    // the tile never renders as a dead hole in the UI.
                     Text(
                         text = candidateName.trim().take(1).uppercase().ifBlank { "?" },
                         style = MaterialTheme.typography.titleMedium,
@@ -174,17 +139,14 @@ fun CandidateCameraTile(
             }
         }
 
-        // The on/off toggle itself — a plain icon-only button (no circular
-        // chip background) anchored to the tile's corner, so the icon
-        // itself is what communicates state: a plain camera glyph when
-        // on, camera-with-slash when off, colored differently too so the
-        // state reads instantly rather than needing to notice a small
-        // glyph change against a same-looking background. Always shown
-        // once connected, so the candidate can always find it (including
-        // to turn video back ON from the off state).
+        // The on/off toggle itself
         if (callState == CallState.Connected) {
             IconButton(
-                onClick = { agoraCallRepository.setLocalVideoEnabled(!videoEnabled) },
+                onClick = {
+                    val newState = !videoEnabled
+                    agoraCallRepository.setLocalVideoEnabled(newState)
+                    analyzer?.setVideoEnabled(newState)
+                },
                 modifier = Modifier.size(26.dp),
                 colors = IconButtonDefaults.iconButtonColors(
                     contentColor = if (videoEnabled) {

@@ -101,6 +101,7 @@ dependencies {
     implementation("androidx.camera:camera-core:1.3.4")
     implementation("androidx.camera:camera-camera2:1.3.4")
     implementation("androidx.camera:camera-lifecycle:1.3.4")
+    implementation("androidx.camera:camera-view:1.3.4")
     implementation("com.google.mlkit:face-detection:16.1.7")
 
     // Lottie — renders the AI interviewer's "dummy video" avatar as a

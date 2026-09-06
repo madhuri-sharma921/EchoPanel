@@ -107,7 +107,7 @@ fun CheatAlertBanner(alerts: List<CheatAlert>, modifier: Modifier = Modifier) {
 fun ScriptPanel(
     script: List<ScriptEntry>,
     isSuggesting: Boolean,
-    onRequestSuggestions: () -> Unit,
+    onRequestSuggestions: (String) -> Unit,
     onAddCustomQuestion: (String) -> Unit,
     onMarkUsed: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -128,7 +128,7 @@ fun ScriptPanel(
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(onClick = onRequestSuggestions, enabled = !isSuggesting) {
+                TextButton(onClick = { onRequestSuggestions(draft) }, enabled = !isSuggesting) {
                     if (isSuggesting) {
                         CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
                         Spacer(Modifier.size(6.dp))

@@ -6,9 +6,13 @@ import android.content.Context
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
+import androidx.camera.core.Preview
+import androidx.camera.core.UseCase
+import androidx.camera.view.PreviewView
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
+import android.util.Log
 import com.echopanel.app.domain.model.ClientCheatSignalType
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.FaceDetection
@@ -29,6 +33,10 @@ class FaceProctoringAnalyzer(private val context: Context) {
 
     private var cameraProvider: ProcessCameraProvider? = null
     private val analysisExecutor = Executors.newSingleThreadExecutor()
+    private var lifecycleOwner: LifecycleOwner? = null
+    private var previewUseCase: Preview? = null
+    private var analysisUseCase: ImageAnalysis? = null
+    private var isVideoEnabled: Boolean = true
 
     private val detector = FaceDetection.getClient(
         FaceDetectorOptions.Builder()
@@ -46,8 +54,46 @@ class FaceProctoringAnalyzer(private val context: Context) {
     private val sustainedFrameThreshold = 15
     private val multiFaceFrameThreshold = 10
 
+    fun bindPreviewView(previewView: PreviewView) {
+        previewView.scaleType = PreviewView.ScaleType.FILL_CENTER
+        previewView.implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+        val preview = Preview.Builder().build()
+        preview.setSurfaceProvider(previewView.surfaceProvider)
+        this.previewUseCase = preview
+        rebindCamera()
+    }
+
+    fun setVideoEnabled(enabled: Boolean) {
+        if (isVideoEnabled != enabled) {
+            isVideoEnabled = enabled
+            rebindCamera()
+        }
+    }
+
+    private fun rebindCamera() {
+        val provider = cameraProvider ?: return
+        val lifecycle = lifecycleOwner ?: return
+        try {
+            provider.unbindAll()
+            if (!isVideoEnabled) return
+            val useCases = mutableListOf<UseCase>()
+            analysisUseCase?.let { useCases.add(it) }
+            previewUseCase?.let { useCases.add(it) }
+            if (useCases.isNotEmpty()) {
+                provider.bindToLifecycle(
+                    lifecycle,
+                    CameraSelector.DEFAULT_FRONT_CAMERA,
+                    *useCases.toTypedArray(),
+                )
+            }
+        } catch (e: Exception) {
+            Log.e("FaceProctoringAnalyzer", "Camera bind failed: ${e.message}", e)
+        }
+    }
+
     @SuppressLint("UnsafeOptInUsageError")
     fun observe(lifecycleOwner: LifecycleOwner): Flow<ObservedSignal> = callbackFlow {
+        this@FaceProctoringAnalyzer.lifecycleOwner = lifecycleOwner
         val providerFuture = ProcessCameraProvider.getInstance(context)
         providerFuture.addListener({
             val provider = try {
@@ -65,18 +111,8 @@ class FaceProctoringAnalyzer(private val context: Context) {
             analysis.setAnalyzer(analysisExecutor) { imageProxy ->
                 analyzeFrame(imageProxy) { signal -> trySend(signal) }
             }
-
-            try {
-                provider.unbindAll()
-                provider.bindToLifecycle(
-                    lifecycleOwner,
-                    CameraSelector.DEFAULT_FRONT_CAMERA,
-                    analysis,
-                )
-            } catch (_: Exception) {
-                // Camera unavailable or in use by another pipeline — degrade gracefully
-                close()
-            }
+            analysisUseCase = analysis
+            rebindCamera()
         }, androidx.core.content.ContextCompat.getMainExecutor(context))
 
         awaitClose {

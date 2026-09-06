@@ -138,13 +138,16 @@ fun InterviewScreen(
         }
     }
 
+    val proctoringAnalyzer = remember(context) {
+        FaceProctoringAnalyzer(context.applicationContext)
+    }
+
     // Start face-proctoring once connected and permitted; the analyzer
     // tears down camera resources itself when the lifecycle stops or the
     // flow is cancelled (see FaceProctoringAnalyzer.observe).
     LaunchedEffect(uiState.callState, hasCameraPermission) {
         if (uiState.callState == CallState.Connected && hasCameraPermission) {
-            val analyzer = FaceProctoringAnalyzer(context.applicationContext)
-            viewModel.startFaceProctoring(analyzer, lifecycleOwner)
+            viewModel.startFaceProctoring(proctoringAnalyzer, lifecycleOwner)
         }
     }
 
@@ -239,6 +242,7 @@ fun InterviewScreen(
                         callState = state,
                         candidateName = candidateName,
                         agoraCallRepository = viewModel.agoraCallRepository,
+                        analyzer = proctoringAnalyzer,
                         onInterrupt = viewModel::onInterruptAgent,
                         onFinish = {
                             uiState.sessionId?.let(onInterviewEnded)
@@ -439,6 +443,7 @@ private fun LiveStatusHero(
     agoraCallRepository: com.echopanel.app.domain.repository.AgoraCallRepository,
     onInterrupt: () -> Unit,
     onFinish: () -> Unit,
+    analyzer: FaceProctoringAnalyzer? = null,
 ) {
     Column(
         modifier = Modifier
@@ -475,6 +480,7 @@ private fun LiveStatusHero(
                 agoraCallRepository = agoraCallRepository,
                 candidateName = candidateName,
                 callState = callState,
+                analyzer = analyzer,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(10.dp),
