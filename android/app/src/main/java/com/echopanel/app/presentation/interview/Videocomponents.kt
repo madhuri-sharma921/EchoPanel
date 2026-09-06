@@ -138,20 +138,22 @@ fun CandidateCameraTile(
                     )
                 }
                 view != null -> {
-                    var lastBoundView by remember { mutableStateOf<SurfaceView?>(null) }
-                    AndroidView(
-                        factory = {
-                            view.apply { setZOrderMediaOverlay(true) }
-                        },
-                        update = { sv ->
-                            sv.setZOrderMediaOverlay(true)
-                            if (lastBoundView !== sv) {
-                                agoraCallRepository.rebindLocalVideo(sv)
-                                lastBoundView = sv
-                            }
-                        },
-                        modifier = Modifier.fillMaxSize(),
-                    )
+                    androidx.compose.runtime.key(view) {
+                        var lastBoundView by remember(view) { mutableStateOf<SurfaceView?>(null) }
+                        AndroidView(
+                            factory = {
+                                view.apply { setZOrderMediaOverlay(true) }
+                            },
+                            update = { sv ->
+                                sv.setZOrderMediaOverlay(true)
+                                if (lastBoundView !== sv) {
+                                    agoraCallRepository.rebindLocalVideo(sv)
+                                    lastBoundView = sv
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
                 }
                 callState == CallState.Connected && attempted < 8 -> {
                     // Still retrying — show a small spinner instead of a
